@@ -1,9 +1,28 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// Função para criar cliente Supabase apenas no lado do cliente
+function createSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+  // Validação apenas no lado do cliente (browser)
+  if (typeof window !== 'undefined') {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.warn('❌ Variáveis do Supabase não configuradas. Verifique NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY')
+      // Retorna um cliente mock para evitar erros
+      return null
+    }
+  }
+
+  // Durante o build (server-side), retorna null para evitar erros
+  if (typeof window === 'undefined' && (!supabaseUrl || !supabaseAnonKey)) {
+    return null
+  }
+
+  return createClient(supabaseUrl!, supabaseAnonKey!)
+}
+
+export const supabase = createSupabaseClient()
 
 // Tipos para o banco de dados
 export interface Database {
