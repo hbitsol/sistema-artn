@@ -209,65 +209,35 @@ export default function SistemaPrecificacao() {
   const ajustarParaSoma8 = (valorBase: number): number => {
     let valorAjustado = valorBase
     let tentativas = 0
-    const maxTentativas = 10000 // Aumentar tentativas
+    const maxTentativas = 1000 // Evitar loop infinito
     
     while (calcularSomaDigitos(valorAjustado) !== 8 && tentativas < maxTentativas) {
       const somaAtual = calcularSomaDigitos(valorAjustado)
       
       if (somaAtual < 8) {
-        // Se a soma é menor que 8, aumentar o valor
+        // Se a soma é menor que 8, aumentar ligeiramente o valor
         valorAjustado += 0.01
       } else {
-        // Se a soma é maior que 8, diminuir o valor
+        // Se a soma é maior que 8, diminuir ligeiramente o valor
         valorAjustado -= 0.01
       }
       
       tentativas++
     }
     
-    // Se ainda não conseguiu ajustar, fazer ajuste mais agressivo
+    // Se não conseguiu ajustar, fazer um ajuste mais direto
     if (calcularSomaDigitos(valorAjustado) !== 8) {
-      // Converter para string sem vírgula/ponto decimal
-      const valorString = valorAjustado.toFixed(2).replace(/[.,]/g, '')
+      const valorString = valorAjustado.toFixed(2).replace('.', '')
       const digitos = valorString.split('').map(d => parseInt(d))
-      let somaAtual = digitos.reduce((acc, d) => acc + d, 0)
+      const somaAtual = digitos.reduce((acc, d) => acc + d, 0)
       
-      // Continuar somando os dígitos até ter um único dígito
-      while (somaAtual >= 10) {
-        somaAtual = somaAtual.toString().split('').reduce((acc, digit) => acc + parseInt(digit), 0)
-      }
-      
-      // Se não é 8, ajustar o último dígito
       if (somaAtual !== 8) {
-        let diferenca = 8 - somaAtual
+        // Ajustar o último dígito para fazer a soma dar 8
+        const diferenca = 8 - (somaAtual % 9 || 9)
+        const ultimoDigito = digitos[digitos.length - 1]
+        const novoUltimoDigito = (ultimoDigito + diferenca) % 10
         
-        // Se a diferença é negativa, precisamos diminuir
-        if (diferenca < 0) {
-          diferenca = 8 - (somaAtual % 9 || 9)
-        }
-        
-        // Ajustar o último dígito
-        const ultimoIndice = digitos.length - 1
-        let novoUltimoDigito = digitos[ultimoIndice] + diferenca
-        
-        // Garantir que o dígito esteja entre 0-9
-        if (novoUltimoDigito < 0) {
-          novoUltimoDigito = 0
-          // Se não conseguir com o último, tentar com o penúltimo
-          if (ultimoIndice > 0) {
-            digitos[ultimoIndice - 1] = Math.max(0, digitos[ultimoIndice - 1] + diferenca)
-          }
-        } else if (novoUltimoDigito > 9) {
-          novoUltimoDigito = 9
-          // Se não conseguir com o último, tentar com o penúltimo
-          if (ultimoIndice > 0) {
-            digitos[ultimoIndice - 1] = Math.min(9, digitos[ultimoIndice - 1] + (diferenca - (9 - digitos[ultimoIndice])))
-          }
-        }
-        
-        digitos[ultimoIndice] = novoUltimoDigito
-        
-        // Reconstruir o valor
+        digitos[digitos.length - 1] = novoUltimoDigito
         const novoValorString = digitos.join('')
         valorAjustado = parseFloat(novoValorString.slice(0, -2) + '.' + novoValorString.slice(-2))
       }
@@ -1744,29 +1714,22 @@ export default function SistemaPrecificacao() {
           {/* Configurações */}
           <TabsContent value="configuracoes">
             <div className="space-y-8">
-
-
-              {/* Template de Proposta para WhatsApp */}
+              {/* Template de Proposta Editável */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="w-5 h-5" />
-                    Template de Proposta para WhatsApp
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      Template de Proposta para WhatsApp
+                    </span>
+                    <Button onClick={salvarTemplate} variant="outline">
+                      <Copy className="w-4 h-4 mr-2" />
+                      Salvar Template
+                    </Button>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Template Atual</Label>
-                      <Textarea
-                        value={templateProposta}
-                        onChange={(e) => setTemplateProposta(e.target.value)}
-                        rows={12}
-                        className="font-mono text-sm"
-                        placeholder="Digite seu template personalizado..."
-                      />
-                    </div>
-                    
                     <div className="bg-blue-50 p-4 rounded-lg">
                       <h4 className="font-semibold text-blue-800 mb-2">📝 Variáveis Disponíveis:</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm text-blue-700">
@@ -1774,16 +1737,161 @@ export default function SistemaPrecificacao() {
                         <div><code>{'{{PROJETO_NOME}}'}</code> - Nome do projeto</div>
                         <div><code>{'{{DATA_CRIACAO}}'}</code> - Data de criação</div>
                         <div><code>{'{{STATUS_PROJETO}}'}</code> - Status atual</div>
-                        <div><code>{'{{ITENS_LISTA}}'}</code> - Lista de itens</div>
+                        <div><code>{'{{ITENS_LISTA}}'}</code> - Lista de itens formatada</div>
                         <div><code>{'{{SUBTOTAL}}'}</code> - Valor subtotal</div>
-                        <div><code>{'{{DESCONTO_LINHA}}'}</code> - Linha de desconto</div>
-                        <div><code>{'{{VALOR_TOTAL}}'}</code> - Valor final</div>
+                        <div><code>{'{{DESCONTO_LINHA}}'}</code> - Linha de desconto (se houver)</div>
+                        <div><code>{'{{VALOR_TOTAL}}'}</code> - Valor total final</div>
                       </div>
                     </div>
                     
-                    <Button onClick={salvarTemplate} className="w-full">
-                      Salvar Template
+                    <div className="space-y-2">
+                      <Label>Template da Proposta</Label>
+                      <Textarea
+                        value={templateProposta}
+                        onChange={(e) => setTemplateProposta(e.target.value)}
+                        placeholder="Digite seu template personalizado..."
+                        rows={15}
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                    
+                    <div className="bg-amber-50 p-4 rounded-lg">
+                      <p className="text-sm text-amber-800">
+                        <strong>💡 Dica:</strong> Use as variáveis entre chaves duplas para inserir dados dinâmicos. 
+                        O template será aplicado automaticamente quando você copiar uma proposta.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Template do Sistema */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Code className="w-5 h-5" />
+                      Template do Sistema
+                    </span>
+                    <Button onClick={copiarTemplate} variant="outline">
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copiar Template
                     </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-sm text-gray-700 mb-4">
+                      <strong>Template completo do sistema</strong> - Inclui estrutura de dados, regras de negócio, 
+                      funcionalidades e tecnologias utilizadas. Use este template para documentação, 
+                      atualizações ou migração do sistema.
+                    </p>
+                    <div className="bg-white p-3 rounded border text-xs font-mono max-h-32 overflow-y-auto">
+                      <pre className="whitespace-pre-wrap text-gray-600">
+{templateSistema.substring(0, 500)}...
+                      </pre>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Clique em "Copiar Template" para obter o template completo
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Migração para Banco de Dados */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Database className="w-5 h-5" />
+                    Migração para Banco de Dados na Nuvem
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <h4 className="font-semibold text-blue-800 mb-2">📋 Opções Recomendadas:</h4>
+                      <div className="space-y-3 text-sm text-blue-700">
+                        <div>
+                          <strong>1. Supabase (Recomendado)</strong>
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li>PostgreSQL gerenciado na nuvem</li>
+                            <li>API REST automática</li>
+                            <li>Autenticação integrada</li>
+                            <li>Plano gratuito generoso</li>
+                            <li>Interface web para gerenciar dados</li>
+                          </ul>
+                        </div>
+                        
+                        <div>
+                          <strong>2. PlanetScale</strong>
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li>MySQL serverless</li>
+                            <li>Branching de banco de dados</li>
+                            <li>Escala automática</li>
+                          </ul>
+                        </div>
+                        
+                        <div>
+                          <strong>3. Vercel Postgres</strong>
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li>Integração perfeita com Vercel</li>
+                            <li>PostgreSQL serverless</li>
+                            <li>Deploy automático</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-green-50 p-4 rounded-lg">
+                      <h4 className="font-semibold text-green-800 mb-2">🚀 Passos para Migração (Supabase):</h4>
+                      <ol className="list-decimal list-inside space-y-2 text-sm text-green-700">
+                        <li>Criar conta no <strong>supabase.com</strong></li>
+                        <li>Criar novo projeto</li>
+                        <li>Executar SQL para criar tabelas:
+                          <ul className="list-disc list-inside ml-4 mt-1">
+                            <li>materiais (id, codigo, nome, descricao, preco_unitario, categoria)</li>
+                            <li>fatores_dificuldade (id, nome, descricao, multiplicador)</li>
+                            <li>clientes (id, nome, telefone, email, endereco, status, observacoes)</li>
+                            <li>projetos (id, cliente_id, nome, descricao, valor_total, desconto, status, data_criacao, data_entrega)</li>
+                            <li>itens_projeto (id, projeto_id, material_id, descricao, quantidade, fator_dificuldade_id, dias_estimados, quantidade_profissionais, nivel_profissional, margem_lucro, custo_material, custo_mao_obra, subtotal, impostos, valor_final)</li>
+                          </ul>
+                        </li>
+                        <li>Instalar cliente Supabase: <code>npm install @supabase/supabase-js</code></li>
+                        <li>Configurar variáveis de ambiente (.env.local)</li>
+                        <li>Substituir localStorage por chamadas da API Supabase</li>
+                        <li>Migrar dados existentes (export/import)</li>
+                      </ol>
+                    </div>
+
+                    <div className="bg-amber-50 p-4 rounded-lg">
+                      <h4 className="font-semibold text-amber-800 mb-2">⚠️ Considerações Importantes:</h4>
+                      <ul className="list-disc list-inside space-y-1 text-sm text-amber-700">
+                        <li><strong>Backup:</strong> Exporte dados atuais antes da migração</li>
+                        <li><strong>Testes:</strong> Teste em ambiente de desenvolvimento primeiro</li>
+                        <li><strong>Performance:</strong> Configure índices adequados nas tabelas</li>
+                        <li><strong>Segurança:</strong> Configure Row Level Security (RLS) no Supabase</li>
+                        <li><strong>Custos:</strong> Monitore uso para evitar surpresas na fatura</li>
+                      </ul>
+                    </div>
+
+                    <div className="bg-purple-50 p-4 rounded-lg">
+                      <h4 className="font-semibold text-purple-800 mb-2">🔧 Código de Exemplo (Supabase):</h4>
+                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+{`// lib/supabase.js
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+export const supabase = createClient(supabaseUrl, supabaseKey)
+
+// Exemplo de uso
+const { data: clientes, error } = await supabase
+  .from('clientes')
+  .select('*')
+  .order('nome')`}
+                      </pre>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
