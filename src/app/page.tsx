@@ -193,12 +193,21 @@ export default function SistemaPrecificacao() {
 
   // Carregar dados do Supabase na inicialização
   useEffect(() => {
-    carregarDados()
+    // Só carregar dados no lado do cliente
+    if (typeof window !== 'undefined') {
+      carregarDados()
+    }
   }, [])
 
   // Função para carregar dados do Supabase
   const carregarDados = async () => {
     try {
+      // Verificar se o cliente Supabase está disponível
+      if (!supabase) {
+        console.warn('Cliente Supabase não está configurado. Usando dados locais.')
+        return
+      }
+
       // Carregar materiais
       const { data: materiaisData } = await supabase
         .from('materiais')
@@ -297,6 +306,11 @@ export default function SistemaPrecificacao() {
   // Função para salvar dados no Supabase - CORRIGIDA
   const salvarNoSupabase = async (tabela: string, dados: any, operacao: 'insert' | 'update' | 'delete' = 'insert') => {
     try {
+      // Verificar se o cliente Supabase está disponível
+      if (!supabase) {
+        throw new Error('Cliente Supabase não está configurado. Verifique as variáveis de ambiente.')
+      }
+
       let result
       
       if (operacao === 'insert') {
