@@ -294,21 +294,38 @@ export default function SistemaPrecificacao() {
     }
   }
 
-  // Função para salvar dados no Supabase
+  // Função para salvar dados no Supabase - CORRIGIDA
   const salvarNoSupabase = async (tabela: string, dados: any, operacao: 'insert' | 'update' | 'delete' = 'insert') => {
     try {
+      let result
+      
       if (operacao === 'insert') {
-        const { error } = await supabase.from(tabela).insert(dados)
-        if (error) throw error
+        result = await supabase.from(tabela).insert(dados)
       } else if (operacao === 'update') {
-        const { error } = await supabase.from(tabela).update(dados).eq('id', dados.id)
-        if (error) throw error
+        result = await supabase.from(tabela).update(dados).eq('id', dados.id)
       } else if (operacao === 'delete') {
-        const { error } = await supabase.from(tabela).delete().eq('id', dados.id)
-        if (error) throw error
+        result = await supabase.from(tabela).delete().eq('id', dados.id)
       }
-    } catch (error) {
-      console.error(`Erro ao ${operacao} em ${tabela}:`, error)
+      
+      if (result?.error) {
+        console.error(`Erro detalhado ao ${operacao} em ${tabela}:`, {
+          message: result.error.message,
+          details: result.error.details,
+          hint: result.error.hint,
+          code: result.error.code,
+          dados: dados
+        })
+        throw new Error(`Erro ao ${operacao} em ${tabela}: ${result.error.message}`)
+      }
+      
+      return result?.data
+    } catch (error: any) {
+      console.error(`Erro completo na operação ${operacao} em ${tabela}:`, {
+        error: error,
+        message: error?.message || 'Erro desconhecido',
+        stack: error?.stack,
+        dados: dados
+      })
       throw error
     }
   }
@@ -984,22 +1001,46 @@ export default function SistemaPrecificacao() {
     return proposta
   }
 
-  // Função para copiar proposta
-  const copiarProposta = (projeto: Projeto) => {
+  // Função para copiar proposta - CORRIGIDA
+  const copiarProposta = async (projeto: Projeto) => {
     const proposta = gerarPropostaWhatsApp(projeto)
     
-    // Tentar usar a Clipboard API moderna primeiro
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(proposta).then(() => {
+    try {
+      // Tentar usar a Clipboard API moderna primeiro (apenas em contexto seguro)
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(proposta)
         toast.success('Proposta copiada para a área de transferência!')
-      }).catch(() => {
-        // Fallback para método alternativo
-        copiarTextoFallback(proposta)
-      })
-    } else {
-      // Fallback para navegadores que não suportam ou ambientes não seguros
-      copiarTextoFallback(proposta)
+        return
+      }
+    } catch (clipboardError) {
+      console.log('Clipboard API não disponível, usando método alternativo')
     }
+    
+    // Fallback: usar método de seleção de texto
+    try {
+      const textArea = document.createElement('textarea')
+      textArea.value = proposta
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-999999px'
+      textArea.style.top = '-999999px'
+      textArea.style.opacity = '0'
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textArea)
+      
+      if (successful) {
+        toast.success('Proposta copiada para a área de transferência!')
+        return
+      }
+    } catch (execCommandError) {
+      console.log('execCommand não funcionou, mostrando modal')
+    }
+    
+    // Se tudo falhar, mostrar modal com texto para cópia manual
+    mostrarTextoParaCopia(proposta)
   }
 
   // Função alternativa para copiar texto
