@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,8 +11,9 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Calculator, Users, BarChart3, Package, Plus, Search, Edit, Trash2, Copy, Settings, FileText, AlertTriangle, Database, Code } from 'lucide-react'
+import { Calculator, Users, BarChart3, Package, Plus, Search, Edit, Trash2, Copy, Settings, FileText } from 'lucide-react'
 import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
 
 // Tipos de dados
 interface Material {
@@ -69,6 +70,7 @@ interface Projeto {
   status: 'orcamento' | 'negociacao' | 'aprovado' | 'rejeitado' | 'andamento' | 'finalizado'
   dataCreacao: string
   dataEntrega?: string
+  dataSugerida?: string
 }
 
 // Dados mock
@@ -93,7 +95,7 @@ const clientesIniciais: Cliente[] = [
   { id: '3', nome: 'Pedro Costa', telefone: '(11) 77777-7777', email: 'pedro@email.com', endereco: 'Rua C, 789', status: 'ativo', observacoes: 'Projetos recorrentes' }
 ]
 
-// Template padrão para proposta
+// Template padrão para proposta - ATUALIZADO
 const templatePropostaPadrao = `🎯 *PROPOSTA COMERCIAL - ARTN ENVELOPAMENTO*
 
 👤 *Cliente:* {{CLIENTE_NOME}}
@@ -109,11 +111,16 @@ const templatePropostaPadrao = `🎯 *PROPOSTA COMERCIAL - ARTN ENVELOPAMENTO*
 {{DESCONTO_LINHA}}
 💰 *VALOR TOTAL: {{VALOR_TOTAL}}*
 
-✅ Garantia de qualidade
-✅ Profissionais especializados
-✅ Materiais premium
+❗ OBS.: Baseado em fotos enviadas/visita técnica no local. Não inclui serviços de marcenaria/marmoaria/alvenaria ou outros serviços que se façam necessários.
 
-📞 Entre em contato para mais informações!`
+💰 Forma de pagamento: Entrada de 50% via Pix e o saldo parcelado em até 2x s/juros no cartão de crédito.
+🕖 Proposta válida por 7 dias. Valores sujeitos a alterações.
+
+📆 Agendamento sujeito a disponibilidade de data e horário.
+🏡 Projeto e execução no local.
+
+💰Valores para ABC e SP, outras regiões sob consulta.
+_⚠ Caro cliente, valorize um bom profissional que estudou para levar a excelência para seu lar. Envelopar não é somente o preço da película, é técnica e dedicação._`
 
 // Configurações do sistema
 const niveisProfissionais = {
@@ -184,6 +191,128 @@ export default function SistemaPrecificacao() {
   const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [projetoProposta, setProjetoProposta] = useState<Projeto | null>(null)
 
+  // Carregar dados do Supabase na inicialização
+  useEffect(() => {
+    carregarDados()
+  }, [])
+
+  // Função para carregar dados do Supabase
+  const carregarDados = async () => {
+    try {
+      // Carregar materiais
+      const { data: materiaisData } = await supabase
+        .from('materiais')
+        .select('*')
+        .order('codigo')
+      
+      if (materiaisData && materiaisData.length > 0) {
+        setMateriais(materiaisData.map(m => ({
+          id: m.id,
+          codigo: m.codigo,
+          nome: m.nome,
+          descricao: m.descricao || '',
+          precoUnitario: m.preco_unitario,
+          categoria: m.categoria || ''
+        })))
+      }
+
+      // Carregar fatores de dificuldade
+      const { data: fatoresData } = await supabase
+        .from('fatores_dificuldade')
+        .select('*')
+        .order('multiplicador')
+      
+      if (fatoresData && fatoresData.length > 0) {
+        setFatoresDificuldade(fatoresData.map(f => ({
+          id: f.id,
+          nome: f.nome,
+          descricao: f.descricao || '',
+          multiplicador: f.multiplicador
+        })))
+      }
+
+      // Carregar clientes
+      const { data: clientesData } = await supabase
+        .from('clientes')
+        .select('*')
+        .order('nome')
+      
+      if (clientesData && clientesData.length > 0) {
+        setClientes(clientesData.map(c => ({
+          id: c.id,
+          nome: c.nome,
+          telefone: c.telefone,
+          email: c.email || '',
+          endereco: c.endereco || '',
+          status: c.status,
+          observacoes: c.observacoes || ''
+        })))
+      }
+
+      // Carregar projetos com itens
+      const { data: projetosData } = await supabase
+        .from('projetos')
+        .select(`
+          *,
+          itens_projeto (*)
+        `)
+        .order('data_criacao', { ascending: false })
+      
+      if (projetosData && projetosData.length > 0) {
+        setProjetos(projetosData.map(p => ({
+          id: p.id,
+          clienteId: p.cliente_id,
+          nome: p.nome,
+          descricao: p.descricao || '',
+          itens: (p.itens_projeto || []).map((i: any) => ({
+            id: i.id,
+            materialId: i.material_id,
+            descricao: i.descricao,
+            quantidade: i.quantidade,
+            fatorDificuldadeId: i.fator_dificuldade_id,
+            diasEstimados: i.dias_estimados,
+            quantidadeProfissionais: i.quantidade_profissionais,
+            nivelProfissional: i.nivel_profissional,
+            margemLucro: i.margem_lucro,
+            custoMaterial: i.custo_material,
+            custoMaoObra: i.custo_mao_obra,
+            subtotal: i.subtotal,
+            impostos: i.impostos,
+            valorFinal: i.valor_final
+          })),
+          valorTotal: p.valor_total,
+          desconto: p.desconto || 0,
+          status: p.status,
+          dataCreacao: new Date(p.data_criacao).toLocaleDateString('pt-BR'),
+          dataEntrega: p.data_entrega ? new Date(p.data_entrega).toLocaleDateString('pt-BR') : undefined,
+          dataSugerida: p.data_sugerida ? new Date(p.data_sugerida).toLocaleDateString('pt-BR') : undefined
+        })))
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error)
+      // Continuar com dados locais se houver erro
+    }
+  }
+
+  // Função para salvar dados no Supabase
+  const salvarNoSupabase = async (tabela: string, dados: any, operacao: 'insert' | 'update' | 'delete' = 'insert') => {
+    try {
+      if (operacao === 'insert') {
+        const { error } = await supabase.from(tabela).insert(dados)
+        if (error) throw error
+      } else if (operacao === 'update') {
+        const { error } = await supabase.from(tabela).update(dados).eq('id', dados.id)
+        if (error) throw error
+      } else if (operacao === 'delete') {
+        const { error } = await supabase.from(tabela).delete().eq('id', dados.id)
+        if (error) throw error
+      }
+    } catch (error) {
+      console.error(`Erro ao ${operacao} em ${tabela}:`, error)
+      throw error
+    }
+  }
+
   // Função para formatar moeda no padrão brasileiro
   const formatarMoeda = (valor: number): string => {
     return valor.toLocaleString('pt-BR', {
@@ -205,11 +334,11 @@ export default function SistemaPrecificacao() {
     return soma
   }
 
-  // Função para ajustar valor para que a soma dos dígitos seja 8
+  // Função CORRIGIDA para ajustar valor para que a soma dos dígitos seja 8
   const ajustarParaSoma8 = (valorBase: number): number => {
     let valorAjustado = valorBase
     let tentativas = 0
-    const maxTentativas = 1000 // Evitar loop infinito
+    const maxTentativas = 10000 // Aumentar tentativas
     
     while (calcularSomaDigitos(valorAjustado) !== 8 && tentativas < maxTentativas) {
       const somaAtual = calcularSomaDigitos(valorAjustado)
@@ -225,19 +354,36 @@ export default function SistemaPrecificacao() {
       tentativas++
     }
     
-    // Se não conseguiu ajustar, fazer um ajuste mais direto
+    // Se não conseguiu ajustar, fazer um ajuste mais direto nos dígitos
     if (calcularSomaDigitos(valorAjustado) !== 8) {
-      const valorString = valorAjustado.toFixed(2).replace('.', '')
+      const valorString = Math.round(valorAjustado * 100).toString().padStart(4, '0')
       const digitos = valorString.split('').map(d => parseInt(d))
-      const somaAtual = digitos.reduce((acc, d) => acc + d, 0)
+      
+      // Calcular diferença necessária para chegar a 8
+      let somaAtual = digitos.reduce((acc, d) => acc + d, 0)
+      while (somaAtual >= 10) {
+        somaAtual = somaAtual.toString().split('').reduce((acc, digit) => acc + parseInt(digit), 0)
+      }
       
       if (somaAtual !== 8) {
         // Ajustar o último dígito para fazer a soma dar 8
-        const diferenca = 8 - (somaAtual % 9 || 9)
-        const ultimoDigito = digitos[digitos.length - 1]
-        const novoUltimoDigito = (ultimoDigito + diferenca) % 10
+        const diferenca = 8 - somaAtual
+        let novoUltimoDigito = digitos[digitos.length - 1] + diferenca
         
-        digitos[digitos.length - 1] = novoUltimoDigito
+        // Se o novo dígito for negativo ou maior que 9, ajustar outros dígitos
+        if (novoUltimoDigito < 0 || novoUltimoDigito > 9) {
+          // Tentar ajustar o penúltimo dígito
+          if (digitos.length > 1) {
+            const ajustePenultimo = Math.floor(diferenca / 2)
+            const ajusteUltimo = diferenca - ajustePenultimo
+            
+            digitos[digitos.length - 2] = Math.max(0, Math.min(9, digitos[digitos.length - 2] + ajustePenultimo))
+            digitos[digitos.length - 1] = Math.max(0, Math.min(9, digitos[digitos.length - 1] + ajusteUltimo))
+          }
+        } else {
+          digitos[digitos.length - 1] = novoUltimoDigito
+        }
+        
         const novoValorString = digitos.join('')
         valorAjustado = parseFloat(novoValorString.slice(0, -2) + '.' + novoValorString.slice(-2))
       }
@@ -299,7 +445,7 @@ export default function SistemaPrecificacao() {
   const resultado = calcularPrecoItem()
 
   // Função para adicionar item ao projeto
-  const adicionarItemProjeto = () => {
+  const adicionarItemProjeto = async () => {
     if (!resultado || !descricaoItem.trim()) {
       toast.error('Preencha todos os campos obrigatórios')
       return
@@ -322,38 +468,103 @@ export default function SistemaPrecificacao() {
       valorFinal: resultado.valorFinal
     }
 
-    if (projetoSelecionado) {
-      // Adicionar a projeto existente
-      setProjetos(projetos.map(p => {
-        if (p.id === projetoSelecionado) {
-          const novosItens = [...p.itens, novoItem]
+    try {
+      if (projetoSelecionado) {
+        // Adicionar a projeto existente
+        const projeto = projetos.find(p => p.id === projetoSelecionado)
+        if (projeto) {
+          const novosItens = [...projeto.itens, novoItem]
           const valorTotal = novosItens.reduce((acc, item) => acc + item.valorFinal, 0)
-          return {
-            ...p,
+          const projetoAtualizado = {
+            ...projeto,
             itens: novosItens,
-            valorTotal: valorTotal - (valorTotal * p.desconto / 100)
+            valorTotal: valorTotal - (valorTotal * projeto.desconto / 100)
           }
+
+          // Salvar item no Supabase
+          await salvarNoSupabase('itens_projeto', {
+            id: novoItem.id,
+            projeto_id: projetoSelecionado,
+            material_id: novoItem.materialId,
+            descricao: novoItem.descricao,
+            quantidade: novoItem.quantidade,
+            fator_dificuldade_id: novoItem.fatorDificuldadeId,
+            dias_estimados: novoItem.diasEstimados,
+            quantidade_profissionais: novoItem.quantidadeProfissionais,
+            nivel_profissional: novoItem.nivelProfissional,
+            margem_lucro: novoItem.margemLucro,
+            custo_material: novoItem.custoMaterial,
+            custo_mao_obra: novoItem.custoMaoObra,
+            subtotal: novoItem.subtotal,
+            impostos: novoItem.impostos,
+            valor_final: novoItem.valorFinal
+          })
+
+          // Atualizar projeto no Supabase
+          await salvarNoSupabase('projetos', {
+            id: projetoSelecionado,
+            valor_total: projetoAtualizado.valorTotal
+          }, 'update')
+
+          setProjetos(projetos.map(p => p.id === projetoSelecionado ? projetoAtualizado : p))
         }
-        return p
-      }))
-      toast.success('Item adicionado ao projeto com sucesso!')
-    } else if (nomeNovoProjeto.trim() && clienteNovoProjeto) {
-      // Criar novo projeto
-      const novoProjeto: Projeto = {
-        id: Date.now().toString(),
-        clienteId: clienteNovoProjeto,
-        nome: nomeNovoProjeto,
-        descricao: '',
-        itens: [novoItem],
-        valorTotal: novoItem.valorFinal,
-        desconto: 0,
-        status: 'orcamento',
-        dataCreacao: new Date().toLocaleDateString('pt-BR')
+        toast.success('Item adicionado ao projeto com sucesso!')
+      } else if (nomeNovoProjeto.trim() && clienteNovoProjeto) {
+        // Criar novo projeto
+        const novoProjeto: Projeto = {
+          id: Date.now().toString(),
+          clienteId: clienteNovoProjeto,
+          nome: nomeNovoProjeto,
+          descricao: '',
+          itens: [novoItem],
+          valorTotal: novoItem.valorFinal,
+          desconto: 0,
+          status: 'orcamento',
+          dataCreacao: new Date().toLocaleDateString('pt-BR'),
+          dataSugerida: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toLocaleDateString('pt-BR')
+        }
+
+        // Salvar projeto no Supabase
+        await salvarNoSupabase('projetos', {
+          id: novoProjeto.id,
+          cliente_id: novoProjeto.clienteId,
+          nome: novoProjeto.nome,
+          descricao: novoProjeto.descricao,
+          valor_total: novoProjeto.valorTotal,
+          desconto: novoProjeto.desconto,
+          status: novoProjeto.status,
+          data_criacao: new Date().toISOString(),
+          data_sugerida: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toISOString()
+        })
+
+        // Salvar item no Supabase
+        await salvarNoSupabase('itens_projeto', {
+          id: novoItem.id,
+          projeto_id: novoProjeto.id,
+          material_id: novoItem.materialId,
+          descricao: novoItem.descricao,
+          quantidade: novoItem.quantidade,
+          fator_dificuldade_id: novoItem.fatorDificuldadeId,
+          dias_estimados: novoItem.diasEstimados,
+          quantidade_profissionais: novoItem.quantidadeProfissionais,
+          nivel_profissional: novoItem.nivelProfissional,
+          margem_lucro: novoItem.margemLucro,
+          custo_material: novoItem.custoMaterial,
+          custo_mao_obra: novoItem.custoMaoObra,
+          subtotal: novoItem.subtotal,
+          impostos: novoItem.impostos,
+          valor_final: novoItem.valorFinal
+        })
+
+        setProjetos([...projetos, novoProjeto])
+        toast.success('Projeto criado com sucesso!')
+      } else {
+        toast.error('Selecione um projeto existente ou preencha os dados para criar um novo')
+        return
       }
-      setProjetos([...projetos, novoProjeto])
-      toast.success('Projeto criado com sucesso!')
-    } else {
-      toast.error('Selecione um projeto existente ou preencha os dados para criar um novo')
+    } catch (error) {
+      console.error('Erro ao salvar:', error)
+      toast.error('Erro ao salvar no banco de dados')
       return
     }
 
@@ -371,7 +582,7 @@ export default function SistemaPrecificacao() {
   }
 
   // Função para adicionar cliente
-  const adicionarCliente = () => {
+  const adicionarCliente = async () => {
     if (!novoCliente.nome || !novoCliente.telefone) {
       toast.error('Nome e telefone são obrigatórios')
       return
@@ -382,9 +593,23 @@ export default function SistemaPrecificacao() {
       ...novoCliente
     }
 
-    setClientes([...clientes, cliente])
-    setNovoCliente({ nome: '', telefone: '', email: '', endereco: '', status: 'lead', observacoes: '' })
-    toast.success('Cliente criado com sucesso!')
+    try {
+      await salvarNoSupabase('clientes', {
+        id: cliente.id,
+        nome: cliente.nome,
+        telefone: cliente.telefone,
+        email: cliente.email,
+        endereco: cliente.endereco,
+        status: cliente.status,
+        observacoes: cliente.observacoes
+      })
+
+      setClientes([...clientes, cliente])
+      setNovoCliente({ nome: '', telefone: '', email: '', endereco: '', status: 'lead', observacoes: '' })
+      toast.success('Cliente criado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao salvar cliente')
+    }
   }
 
   // Função para editar cliente
@@ -394,20 +619,34 @@ export default function SistemaPrecificacao() {
   }
 
   // Função para salvar edição do cliente
-  const salvarEdicaoCliente = () => {
+  const salvarEdicaoCliente = async () => {
     if (!clienteEditando || !clienteEditando.nome || !clienteEditando.telefone) {
       toast.error('Nome e telefone são obrigatórios')
       return
     }
 
-    setClientes(clientes.map(c => c.id === clienteEditando.id ? clienteEditando : c))
-    setClienteEditando(null)
-    setShowClienteModal(false)
-    toast.success('Cliente atualizado com sucesso!')
+    try {
+      await salvarNoSupabase('clientes', {
+        id: clienteEditando.id,
+        nome: clienteEditando.nome,
+        telefone: clienteEditando.telefone,
+        email: clienteEditando.email,
+        endereco: clienteEditando.endereco,
+        status: clienteEditando.status,
+        observacoes: clienteEditando.observacoes
+      }, 'update')
+
+      setClientes(clientes.map(c => c.id === clienteEditando.id ? clienteEditando : c))
+      setClienteEditando(null)
+      setShowClienteModal(false)
+      toast.success('Cliente atualizado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao atualizar cliente')
+    }
   }
 
   // Função para deletar cliente
-  const deletarCliente = (clienteId: string) => {
+  const deletarCliente = async (clienteId: string) => {
     // Verificar se cliente tem projetos
     const temProjetos = projetos.some(p => p.clienteId === clienteId)
     if (temProjetos) {
@@ -416,8 +655,13 @@ export default function SistemaPrecificacao() {
     }
 
     if (confirm('Tem certeza que deseja deletar este cliente?')) {
-      setClientes(clientes.filter(c => c.id !== clienteId))
-      toast.success('Cliente deletado com sucesso!')
+      try {
+        await salvarNoSupabase('clientes', { id: clienteId }, 'delete')
+        setClientes(clientes.filter(c => c.id !== clienteId))
+        toast.success('Cliente deletado com sucesso!')
+      } catch (error) {
+        toast.error('Erro ao deletar cliente')
+      }
     }
   }
 
@@ -428,52 +672,88 @@ export default function SistemaPrecificacao() {
   }
 
   // Função para salvar edição do projeto
-  const salvarEdicaoProjeto = () => {
+  const salvarEdicaoProjeto = async () => {
     if (!projetoEditando) return
 
     const valorItens = projetoEditando.itens.reduce((acc, item) => acc + item.valorFinal, 0)
     const valorComDesconto = valorItens - (valorItens * projetoEditando.desconto / 100)
 
-    setProjetos(projetos.map(p => p.id === projetoEditando.id ? {
-      ...projetoEditando,
-      valorTotal: valorComDesconto
-    } : p))
-    
-    setProjetoEditando(null)
-    setShowProjetoModal(false)
-    toast.success('Projeto atualizado com sucesso!')
+    try {
+      await salvarNoSupabase('projetos', {
+        id: projetoEditando.id,
+        nome: projetoEditando.nome,
+        descricao: projetoEditando.descricao,
+        valor_total: valorComDesconto,
+        desconto: projetoEditando.desconto,
+        status: projetoEditando.status,
+        data_entrega: projetoEditando.dataEntrega ? new Date(projetoEditando.dataEntrega.split('/').reverse().join('-')).toISOString() : null
+      }, 'update')
+
+      setProjetos(projetos.map(p => p.id === projetoEditando.id ? {
+        ...projetoEditando,
+        valorTotal: valorComDesconto
+      } : p))
+      
+      setProjetoEditando(null)
+      setShowProjetoModal(false)
+      toast.success('Projeto atualizado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao atualizar projeto')
+    }
   }
 
   // Função para deletar projeto
-  const deletarProjeto = (projetoId: string) => {
+  const deletarProjeto = async (projetoId: string) => {
     if (confirm('Tem certeza que deseja deletar este projeto?')) {
-      setProjetos(projetos.filter(p => p.id !== projetoId))
-      toast.success('Projeto deletado com sucesso!')
+      try {
+        // Deletar itens do projeto primeiro
+        await supabase.from('itens_projeto').delete().eq('projeto_id', projetoId)
+        // Deletar projeto
+        await salvarNoSupabase('projetos', { id: projetoId }, 'delete')
+        
+        setProjetos(projetos.filter(p => p.id !== projetoId))
+        toast.success('Projeto deletado com sucesso!')
+      } catch (error) {
+        toast.error('Erro ao deletar projeto')
+      }
     }
   }
 
   // Função para deletar item do projeto
-  const deletarItemProjeto = (projetoId: string, itemId: string) => {
+  const deletarItemProjeto = async (projetoId: string, itemId: string) => {
     if (confirm('Tem certeza que deseja deletar este item?')) {
-      setProjetos(projetos.map(p => {
-        if (p.id === projetoId) {
-          const novosItens = p.itens.filter(i => i.id !== itemId)
-          const valorItens = novosItens.reduce((acc, item) => acc + item.valorFinal, 0)
-          const valorComDesconto = valorItens - (valorItens * p.desconto / 100)
-          return {
-            ...p,
-            itens: novosItens,
-            valorTotal: valorComDesconto
+      try {
+        await salvarNoSupabase('itens_projeto', { id: itemId }, 'delete')
+
+        setProjetos(projetos.map(p => {
+          if (p.id === projetoId) {
+            const novosItens = p.itens.filter(i => i.id !== itemId)
+            const valorItens = novosItens.reduce((acc, item) => acc + item.valorFinal, 0)
+            const valorComDesconto = valorItens - (valorItens * p.desconto / 100)
+            
+            // Atualizar valor total no Supabase
+            salvarNoSupabase('projetos', {
+              id: projetoId,
+              valor_total: valorComDesconto
+            }, 'update')
+
+            return {
+              ...p,
+              itens: novosItens,
+              valorTotal: valorComDesconto
+            }
           }
-        }
-        return p
-      }))
-      toast.success('Item deletado com sucesso!')
+          return p
+        }))
+        toast.success('Item deletado com sucesso!')
+      } catch (error) {
+        toast.error('Erro ao deletar item')
+      }
     }
   }
 
   // Função para adicionar material
-  const adicionarMaterial = () => {
+  const adicionarMaterial = async () => {
     if (!novoMaterial.codigo || !novoMaterial.nome || !novoMaterial.precoUnitario) {
       toast.error('Código, nome e preço são obrigatórios')
       return
@@ -488,10 +768,23 @@ export default function SistemaPrecificacao() {
       categoria: novoMaterial.categoria
     }
 
-    setMateriais([...materiais, material])
-    setNovoMaterial({ codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: '' })
-    setShowMaterialModal(false)
-    toast.success('Material adicionado com sucesso!')
+    try {
+      await salvarNoSupabase('materiais', {
+        id: material.id,
+        codigo: material.codigo,
+        nome: material.nome,
+        descricao: material.descricao,
+        preco_unitario: material.precoUnitario,
+        categoria: material.categoria
+      })
+
+      setMateriais([...materiais, material])
+      setNovoMaterial({ codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: '' })
+      setShowMaterialModal(false)
+      toast.success('Material adicionado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao salvar material')
+    }
   }
 
   // Função para editar material
@@ -508,7 +801,7 @@ export default function SistemaPrecificacao() {
   }
 
   // Função para salvar edição do material
-  const salvarEdicaoMaterial = () => {
+  const salvarEdicaoMaterial = async () => {
     if (!materialEditando || !novoMaterial.codigo || !novoMaterial.nome || !novoMaterial.precoUnitario) {
       toast.error('Código, nome e preço são obrigatórios')
       return
@@ -523,15 +816,28 @@ export default function SistemaPrecificacao() {
       categoria: novoMaterial.categoria
     }
 
-    setMateriais(materiais.map(m => m.id === materialEditando.id ? materialAtualizado : m))
-    setMaterialEditando(null)
-    setNovoMaterial({ codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: '' })
-    setShowMaterialModal(false)
-    toast.success('Material atualizado com sucesso!')
+    try {
+      await salvarNoSupabase('materiais', {
+        id: materialAtualizado.id,
+        codigo: materialAtualizado.codigo,
+        nome: materialAtualizado.nome,
+        descricao: materialAtualizado.descricao,
+        preco_unitario: materialAtualizado.precoUnitario,
+        categoria: materialAtualizado.categoria
+      }, 'update')
+
+      setMateriais(materiais.map(m => m.id === materialEditando.id ? materialAtualizado : m))
+      setMaterialEditando(null)
+      setNovoMaterial({ codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: '' })
+      setShowMaterialModal(false)
+      toast.success('Material atualizado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao atualizar material')
+    }
   }
 
   // Função para deletar material
-  const deletarMaterial = (materialId: string) => {
+  const deletarMaterial = async (materialId: string) => {
     // Verificar se material está sendo usado em projetos
     const emUso = projetos.some(p => p.itens.some(i => i.materialId === materialId))
     if (emUso) {
@@ -540,13 +846,18 @@ export default function SistemaPrecificacao() {
     }
 
     if (confirm('Tem certeza que deseja deletar este material?')) {
-      setMateriais(materiais.filter(m => m.id !== materialId))
-      toast.success('Material deletado com sucesso!')
+      try {
+        await salvarNoSupabase('materiais', { id: materialId }, 'delete')
+        setMateriais(materiais.filter(m => m.id !== materialId))
+        toast.success('Material deletado com sucesso!')
+      } catch (error) {
+        toast.error('Erro ao deletar material')
+      }
     }
   }
 
   // Função para adicionar fator de dificuldade
-  const adicionarFator = () => {
+  const adicionarFator = async () => {
     if (!novoFator.nome || !novoFator.multiplicador) {
       toast.error('Nome e multiplicador são obrigatórios')
       return
@@ -559,10 +870,21 @@ export default function SistemaPrecificacao() {
       multiplicador: parseFloat(novoFator.multiplicador)
     }
 
-    setFatoresDificuldade([...fatoresDificuldade, fator])
-    setNovoFator({ nome: '', descricao: '', multiplicador: '' })
-    setShowFatorModal(false)
-    toast.success('Fator de dificuldade adicionado com sucesso!')
+    try {
+      await salvarNoSupabase('fatores_dificuldade', {
+        id: fator.id,
+        nome: fator.nome,
+        descricao: fator.descricao,
+        multiplicador: fator.multiplicador
+      })
+
+      setFatoresDificuldade([...fatoresDificuldade, fator])
+      setNovoFator({ nome: '', descricao: '', multiplicador: '' })
+      setShowFatorModal(false)
+      toast.success('Fator de dificuldade adicionado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao salvar fator')
+    }
   }
 
   // Função para editar fator de dificuldade
@@ -577,7 +899,7 @@ export default function SistemaPrecificacao() {
   }
 
   // Função para salvar edição do fator
-  const salvarEdicaoFator = () => {
+  const salvarEdicaoFator = async () => {
     if (!fatorEditando || !novoFator.nome || !novoFator.multiplicador) {
       toast.error('Nome e multiplicador são obrigatórios')
       return
@@ -590,15 +912,26 @@ export default function SistemaPrecificacao() {
       multiplicador: parseFloat(novoFator.multiplicador)
     }
 
-    setFatoresDificuldade(fatoresDificuldade.map(f => f.id === fatorEditando.id ? fatorAtualizado : f))
-    setFatorEditando(null)
-    setNovoFator({ nome: '', descricao: '', multiplicador: '' })
-    setShowFatorModal(false)
-    toast.success('Fator de dificuldade atualizado com sucesso!')
+    try {
+      await salvarNoSupabase('fatores_dificuldade', {
+        id: fatorAtualizado.id,
+        nome: fatorAtualizado.nome,
+        descricao: fatorAtualizado.descricao,
+        multiplicador: fatorAtualizado.multiplicador
+      }, 'update')
+
+      setFatoresDificuldade(fatoresDificuldade.map(f => f.id === fatorEditando.id ? fatorAtualizado : f))
+      setFatorEditando(null)
+      setNovoFator({ nome: '', descricao: '', multiplicador: '' })
+      setShowFatorModal(false)
+      toast.success('Fator de dificuldade atualizado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao atualizar fator')
+    }
   }
 
   // Função para deletar fator de dificuldade
-  const deletarFator = (fatorId: string) => {
+  const deletarFator = async (fatorId: string) => {
     // Verificar se fator está sendo usado em projetos
     const emUso = projetos.some(p => p.itens.some(i => i.fatorDificuldadeId === fatorId))
     if (emUso) {
@@ -607,27 +940,31 @@ export default function SistemaPrecificacao() {
     }
 
     if (confirm('Tem certeza que deseja deletar este fator de dificuldade?')) {
-      setFatoresDificuldade(fatoresDificuldade.filter(f => f.id !== fatorId))
-      toast.success('Fator de dificuldade deletado com sucesso!')
+      try {
+        await salvarNoSupabase('fatores_dificuldade', { id: fatorId }, 'delete')
+        setFatoresDificuldade(fatoresDificuldade.filter(f => f.id !== fatorId))
+        toast.success('Fator de dificuldade deletado com sucesso!')
+      } catch (error) {
+        toast.error('Erro ao deletar fator')
+      }
     }
   }
 
-  // Função para gerar proposta para WhatsApp
+  // Função para gerar proposta para WhatsApp - ATUALIZADA
   const gerarPropostaWhatsApp = (projeto: Projeto) => {
     const cliente = clientes.find(c => c.id === projeto.clienteId)
     const valorItens = projeto.itens.reduce((acc, item) => acc + item.valorFinal, 0)
     
-    // Gerar lista de itens
+    // Gerar lista de itens - USANDO DESCRIÇÃO EM VEZ DO NOME DO MATERIAL
     let itensLista = ''
     projeto.itens.forEach((item, index) => {
-      const material = materiais.find(m => m.id === item.materialId)
-      itensLista += `*${index + 1}. ${item.descricao}*\n   Material: ${material?.nome}\n   Valor: *${formatarMoeda(item.valorFinal)}*\n\n`
+      itensLista += `*${index + 1}. ${item.descricao}*\\n   Valor: *${formatarMoeda(item.valorFinal)}*\\n\\n`
     })
 
     // Linha de desconto (se houver)
     let descontoLinha = ''
     if (projeto.desconto > 0) {
-      descontoLinha = `🎯 *DESCONTO (${projeto.desconto}%): -${formatarMoeda(valorItens * projeto.desconto / 100)}*\n`
+      descontoLinha = `🎯 *DESCONTO (${projeto.desconto}%): -${formatarMoeda(valorItens * projeto.desconto / 100)}*\\n`
     }
 
     // Substituir variáveis no template
@@ -641,8 +978,8 @@ export default function SistemaPrecificacao() {
       .replace('{{DESCONTO_LINHA}}', descontoLinha)
       .replace('{{VALOR_TOTAL}}', formatarMoeda(projeto.valorTotal))
 
-    // Substituir \n por quebras de linha reais
-    proposta = proposta.replace(/\\n/g, '\n')
+    // Substituir \\n por quebras de linha reais
+    proposta = proposta.replace(/\\\\n/g, '\n')
 
     return proposta
   }
@@ -768,134 +1105,44 @@ export default function SistemaPrecificacao() {
     toast.success('Template de proposta atualizado com sucesso!')
   }
 
-  // Template do sistema para copiar
-  const templateSistema = `# Sistema de Precificação - Artn Envelopamento
-
-## Estrutura de Dados
-
-### Materiais
-- ID, Código, Nome, Descrição, Preço Unitário, Categoria
-
-### Fatores de Dificuldade
-- ID, Nome, Descrição, Multiplicador (2.3x - 3.3x)
-
-### Clientes
-- ID, Nome, Telefone, Email, Endereço, Status (lead/ativo/inativo), Observações
-
-### Projetos
-- ID, Cliente ID, Nome, Descrição, Itens[], Valor Total, Desconto, Status, Data Criação, Data Entrega
-
-### Itens do Projeto
-- ID, Material ID, Descrição, Quantidade, Fator Dificuldade ID, Dias Estimados, Quantidade Profissionais, Nível Profissional, Margem Lucro, Custos Calculados
-
-## Regras de Negócio
-
-### Cálculo de Precificação
-1. Custo Material = Quantidade × Preço Unitário × Fator Dificuldade
-2. Custo Mão de Obra = Dias × Quantidade Profissionais × Valor Diário
-3. Subtotal = Custo Material + Custo Mão de Obra
-4. Impostos = Subtotal × 7%
-5. Base = Subtotal + Impostos
-6. Preço Final = Base × (1 + Margem de Lucro)
-7. **REGRA ESPECIAL**: Ajustar preço final para que soma dos dígitos = 8
-
-### Níveis Profissionais
-- Ajudante: R$ 150/dia
-- Pleno: R$ 250/dia
-- Sênior: R$ 380/dia
-
-### Margem de Lucro
-- Mínima: 15%
-- Máxima: 100%
-
-### Status do Projeto
-- Orçamento, Em Negociação, Aprovado, Rejeitado, Em Andamento, Finalizado
-
-## Funcionalidades
-
-### Calculadora
-- Seleção de material e fator de dificuldade
-- Cálculo automático com regra numerológica (soma = 8)
-- Associação a projeto existente ou criação de novo
-
-### CRM
-- CRUD completo de clientes
-- Proteção contra deleção de clientes com projetos
-- Pipeline de vendas
-
-### Gestão de Projetos
-- Múltiplos itens por projeto
-- Sistema de desconto
-- Geração de proposta para WhatsApp
-- Controle de status
-
-### Dashboard
-- Métricas de clientes e projetos
-- Gráficos de status
-- Informações sobre armazenamento
-
-## Tecnologias
-- Next.js 15 + React 19
-- TypeScript
-- Tailwind CSS v4
-- Shadcn/ui
-- Sonner (toasts)
-- Lucide Icons
-
-## Armazenamento
-- Atual: localStorage (dados locais)
-- Futuro: Banco de dados na nuvem (Supabase recomendado)
-`
-
-  // Função para copiar template
-  const copiarTemplate = () => {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(templateSistema).then(() => {
-        toast.success('Template copiado para a área de transferência!')
-      }).catch(() => {
-        copiarTextoFallback(templateSistema)
-      })
-    } else {
-      copiarTextoFallback(templateSistema)
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-cyan-50 p-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header com Logo */}
-        <div className="mb-8 flex items-center gap-6">
+        {/* Header com Logo - UI Moderna Inspirada no Conta Azul */}
+        <div className="mb-8 flex items-center gap-6 bg-white rounded-2xl shadow-lg p-6 border border-blue-100">
           <img 
             src="https://k6hrqrxuu8obbfwn.public.blob.vercel-storage.com/temp/1d2c3491-878e-47c4-8fa1-214a5282302a.png" 
             alt="Logo Artn Envelopamento" 
             className="h-16 w-auto"
           />
           <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Sistema de Precificação</h1>
-            <p className="text-xl text-gray-600">Artn Envelopamento - Gestão de Franquias</p>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
+              Sistema de Precificação
+            </h1>
+            <p className="text-xl text-blue-600 font-medium">Artn Envelopamento - Gestão de Franquias</p>
           </div>
         </div>
 
-        {/* Navegação */}
+        {/* Navegação - UI Moderna */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-8">
-            <TabsTrigger value="dashboard" className="flex items-center gap-2">
+          <TabsList className="grid w-full grid-cols-5 mb-8 bg-white rounded-xl shadow-md border border-blue-100 p-1">
+            <TabsTrigger value="dashboard" className="flex items-center gap-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-lg transition-all">
               <BarChart3 className="w-4 h-4" />
               Dashboard
             </TabsTrigger>
-            <TabsTrigger value="calculadora" className="flex items-center gap-2">
+            <TabsTrigger value="calculadora" className="flex items-center gap-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-lg transition-all">
               <Calculator className="w-4 h-4" />
               Calculadora
             </TabsTrigger>
-            <TabsTrigger value="clientes" className="flex items-center gap-2">
+            <TabsTrigger value="clientes" className="flex items-center gap-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-lg transition-all">
               <Users className="w-4 h-4" />
               Clientes
             </TabsTrigger>
-            <TabsTrigger value="projetos" className="flex items-center gap-2">
+            <TabsTrigger value="projetos" className="flex items-center gap-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-lg transition-all">
               <Package className="w-4 h-4" />
               Projetos
             </TabsTrigger>
-            <TabsTrigger value="configuracoes" className="flex items-center gap-2">
+            <TabsTrigger value="configuracoes" className="flex items-center gap-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-lg transition-all">
               <Settings className="w-4 h-4" />
               Configurações
             </TabsTrigger>
@@ -904,80 +1151,80 @@ export default function SistemaPrecificacao() {
           {/* Dashboard */}
           <TabsContent value="dashboard">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              {/* Cards de Métricas */}
-              <Card>
+              {/* Cards de Métricas - UI Moderna */}
+              <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600">Total Clientes</p>
+                      <p className="text-blue-100">Total Clientes</p>
                       <p className="text-3xl font-bold">{clientes.length}</p>
                     </div>
-                    <Users className="w-8 h-8 text-blue-500" />
+                    <Users className="w-8 h-8 text-blue-200" />
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white border-0 shadow-lg">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600">Projetos</p>
+                      <p className="text-green-100">Projetos</p>
                       <p className="text-3xl font-bold">{projetos.length}</p>
                     </div>
-                    <Package className="w-8 h-8 text-green-500" />
+                    <Package className="w-8 h-8 text-green-200" />
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600">Clientes Ativos</p>
+                      <p className="text-purple-100">Clientes Ativos</p>
                       <p className="text-3xl font-bold">{clientes.filter(c => c.status === 'ativo').length}</p>
                     </div>
-                    <Users className="w-8 h-8 text-purple-500" />
+                    <Users className="w-8 h-8 text-purple-200" />
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600">Pipeline Total</p>
+                      <p className="text-orange-100">Pipeline Total</p>
                       <p className="text-3xl font-bold">
                         {formatarMoeda(projetos.reduce((acc, p) => acc + p.valorTotal, 0)).replace('R$', 'R$').replace(',00', '')}
                       </p>
                     </div>
-                    <BarChart3 className="w-8 h-8 text-orange-500" />
+                    <BarChart3 className="w-8 h-8 text-orange-200" />
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Gráficos e Relatórios */}
+            {/* Gráficos e Relatórios - UI Moderna */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Status dos Clientes</CardTitle>
+              <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
+                  <CardTitle className="text-blue-700">Status dos Clientes</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-6">
                   <div className="space-y-4">
                     {['lead', 'ativo', 'inativo'].map(status => {
                       const count = clientes.filter(c => c.status === status).length
                       const percentage = clientes.length > 0 ? (count / clientes.length) * 100 : 0
                       return (
                         <div key={status} className="flex items-center justify-between">
-                          <span className="capitalize">{status}</span>
+                          <span className="capitalize font-medium text-gray-700">{status}</span>
                           <div className="flex items-center gap-2">
-                            <div className="w-32 bg-gray-200 rounded-full h-2">
+                            <div className="w-32 bg-blue-100 rounded-full h-3">
                               <div 
-                                className="bg-blue-500 h-2 rounded-full" 
+                                className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-300" 
                                 style={{ width: `${percentage}%` }}
                               />
                             </div>
-                            <span className="text-sm font-medium">{count}</span>
+                            <span className="text-sm font-bold text-blue-600 w-8">{count}</span>
                           </div>
                         </div>
                       )
@@ -986,26 +1233,26 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Status dos Projetos</CardTitle>
+              <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
+                  <CardTitle className="text-blue-700">Status dos Projetos</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-6">
                   <div className="space-y-4">
                     {Object.entries(statusProjeto).map(([key, status]) => {
                       const count = projetos.filter(p => p.status === key).length
                       const percentage = projetos.length > 0 ? (count / projetos.length) * 100 : 0
                       return (
                         <div key={key} className="flex items-center justify-between">
-                          <span>{status.nome}</span>
+                          <span className="font-medium text-gray-700">{status.nome}</span>
                           <div className="flex items-center gap-2">
-                            <div className="w-32 bg-gray-200 rounded-full h-2">
+                            <div className="w-32 bg-green-100 rounded-full h-3">
                               <div 
-                                className="bg-green-500 h-2 rounded-full" 
+                                className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-300" 
                                 style={{ width: `${percentage}%` }}
                               />
                             </div>
-                            <span className="text-sm font-medium">{count}</span>
+                            <span className="text-sm font-bold text-green-600 w-8">{count}</span>
                           </div>
                         </div>
                       )
@@ -1014,60 +1261,38 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
             </div>
-
-            {/* Informação sobre dados */}
-            <Card className="mt-8">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-500" />
-                  Sobre o Armazenamento de Dados
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="bg-amber-50 p-4 rounded-lg">
-                  <p className="text-sm text-amber-800 mb-2">
-                    <strong>Dados Locais:</strong> Atualmente, todos os dados (clientes, projetos, materiais) são salvos localmente no seu navegador.
-                  </p>
-                  <p className="text-sm text-amber-800 mb-2">
-                    <strong>Ao publicar o app:</strong> Os dados poderão ser migrados para um banco de dados na nuvem (como Supabase) para acesso de qualquer dispositivo e backup automático.
-                  </p>
-                  <p className="text-sm text-amber-800">
-                    <strong>Recomendação:</strong> Faça backup regular dos seus dados importantes até a implementação do banco de dados definitivo.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* Calculadora de Preços */}
           <TabsContent value="calculadora">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Formulário de Cálculo */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+              {/* Formulário de Cálculo - UI Moderna */}
+              <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
+                  <CardTitle className="flex items-center gap-2 text-blue-700">
                     <Calculator className="w-5 h-5" />
                     Calculadora de Preços
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="space-y-6 p-6">
                   {/* Descrição do Item */}
                   <div className="space-y-2">
-                    <Label htmlFor="descricao">Descrição do Item *</Label>
+                    <Label htmlFor="descricao" className="text-gray-700 font-medium">Descrição do Item *</Label>
                     <Textarea
                       id="descricao"
                       value={descricaoItem}
                       onChange={(e) => setDescricaoItem(e.target.value)}
                       placeholder="Ex: Envelopamento completo do capô com película premium"
                       rows={2}
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
 
                   {/* Seleção de Material */}
                   <div className="space-y-2">
-                    <Label htmlFor="material">Material *</Label>
+                    <Label htmlFor="material" className="text-gray-700 font-medium">Material *</Label>
                     <Select value={materialSelecionado} onValueChange={setMaterialSelecionado}>
-                      <SelectTrigger>
+                      <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                         <SelectValue placeholder="Selecione um material" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1082,7 +1307,7 @@ export default function SistemaPrecificacao() {
 
                   {/* Quantidade */}
                   <div className="space-y-2">
-                    <Label htmlFor="quantidade">Quantidade (m²) *</Label>
+                    <Label htmlFor="quantidade" className="text-gray-700 font-medium">Quantidade (m²) *</Label>
                     <Input
                       id="quantidade"
                       type="number"
@@ -1090,14 +1315,15 @@ export default function SistemaPrecificacao() {
                       value={quantidade}
                       onChange={(e) => setQuantidade(e.target.value)}
                       placeholder="Ex: 10.5"
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
 
                   {/* Fator de Dificuldade */}
                   <div className="space-y-2">
-                    <Label htmlFor="dificuldade">Fator de Dificuldade *</Label>
+                    <Label htmlFor="dificuldade" className="text-gray-700 font-medium">Fator de Dificuldade *</Label>
                     <Select value={fatorDificuldadeSelecionado} onValueChange={setFatorDificuldadeSelecionado}>
-                      <SelectTrigger>
+                      <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                         <SelectValue placeholder="Selecione a dificuldade" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1113,32 +1339,34 @@ export default function SistemaPrecificacao() {
                   {/* Mão de Obra */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="dias">Dias Estimados *</Label>
+                      <Label htmlFor="dias" className="text-gray-700 font-medium">Dias Estimados *</Label>
                       <Input
                         id="dias"
                         type="number"
                         value={diasEstimados}
                         onChange={(e) => setDiasEstimados(e.target.value)}
                         placeholder="Ex: 3"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="profissionais">Nº Profissionais *</Label>
+                      <Label htmlFor="profissionais" className="text-gray-700 font-medium">Nº Profissionais *</Label>
                       <Input
                         id="profissionais"
                         type="number"
                         value={quantidadeProfissionais}
                         onChange={(e) => setQuantidadeProfissionais(e.target.value)}
                         placeholder="Ex: 2"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                   </div>
 
                   {/* Nível Profissional */}
                   <div className="space-y-2">
-                    <Label htmlFor="nivel">Nível Profissional *</Label>
+                    <Label htmlFor="nivel" className="text-gray-700 font-medium">Nível Profissional *</Label>
                     <Select value={nivelProfissional} onValueChange={setNivelProfissional}>
-                      <SelectTrigger>
+                      <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                         <SelectValue placeholder="Selecione o nível" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1153,7 +1381,7 @@ export default function SistemaPrecificacao() {
 
                   {/* Margem de Lucro */}
                   <div className="space-y-2">
-                    <Label htmlFor="margem">Margem de Lucro (%)</Label>
+                    <Label htmlFor="margem" className="text-gray-700 font-medium">Margem de Lucro (%)</Label>
                     <div className="flex items-center gap-4">
                       <Input
                         id="margem"
@@ -1164,7 +1392,7 @@ export default function SistemaPrecificacao() {
                         onChange={(e) => setMargemLucro(e.target.value)}
                         className="flex-1"
                       />
-                      <span className="font-semibold text-lg w-12">{margemLucro}%</span>
+                      <span className="font-semibold text-lg w-12 text-blue-600">{margemLucro}%</span>
                     </div>
                     <p className="text-sm text-gray-500">Faixa permitida: 15% - 100%</p>
                   </div>
@@ -1172,13 +1400,13 @@ export default function SistemaPrecificacao() {
                   {/* Projeto */}
                   <Separator />
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Associar a Projeto</h3>
+                    <h3 className="font-semibold text-gray-700">Associar a Projeto</h3>
                     
                     {/* Projeto Existente */}
                     <div className="space-y-2">
-                      <Label htmlFor="projeto-existente">Projeto Existente</Label>
+                      <Label htmlFor="projeto-existente" className="text-gray-700 font-medium">Projeto Existente</Label>
                       <Select value={projetoSelecionado} onValueChange={setProjetoSelecionado}>
-                        <SelectTrigger>
+                        <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                           <SelectValue placeholder="Selecione um projeto existente" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1199,18 +1427,19 @@ export default function SistemaPrecificacao() {
                     {/* Novo Projeto */}
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <Label htmlFor="nome-projeto">Nome do Novo Projeto</Label>
+                        <Label htmlFor="nome-projeto" className="text-gray-700 font-medium">Nome do Novo Projeto</Label>
                         <Input
                           id="nome-projeto"
                           value={nomeNovoProjeto}
                           onChange={(e) => setNomeNovoProjeto(e.target.value)}
                           placeholder="Ex: Envelopamento Veículo João"
+                          className="border-blue-200 focus:border-blue-500 rounded-lg"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="cliente-projeto">Cliente</Label>
+                        <Label htmlFor="cliente-projeto" className="text-gray-700 font-medium">Cliente</Label>
                         <Select value={clienteNovoProjeto} onValueChange={setClienteNovoProjeto}>
-                          <SelectTrigger>
+                          <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                             <SelectValue placeholder="Selecione o cliente" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1227,56 +1456,56 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
 
-              {/* Resultado do Cálculo */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Resultado da Precificação</CardTitle>
+              {/* Resultado do Cálculo - UI Moderna */}
+              <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
+                  <CardTitle className="text-blue-700">Resultado da Precificação</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-6">
                   {resultado ? (
                     <div className="space-y-4">
-                      <div className="bg-blue-50 p-4 rounded-lg">
-                        <h3 className="font-semibold text-lg mb-2">{resultado.material}</h3>
-                        <p className="text-sm text-gray-600 mb-4">Fator: {resultado.fator}</p>
-                        <div className="space-y-2 text-sm">
+                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-200">
+                        <h3 className="font-semibold text-lg mb-2 text-blue-800">{resultado.material}</h3>
+                        <p className="text-sm text-blue-600 mb-4">Fator: {resultado.fator}</p>
+                        <div className="space-y-3 text-sm">
                           <div className="flex justify-between">
-                            <span>Custo Material:</span>
-                            <span>{formatarMoeda(resultado.custoMaterial)}</span>
+                            <span className="text-gray-700">Custo Material:</span>
+                            <span className="font-medium">{formatarMoeda(resultado.custoMaterial)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Custo Mão de Obra:</span>
-                            <span>{formatarMoeda(resultado.custoMaoObra)}</span>
+                            <span className="text-gray-700">Custo Mão de Obra:</span>
+                            <span className="font-medium">{formatarMoeda(resultado.custoMaoObra)}</span>
                           </div>
                           <Separator />
                           <div className="flex justify-between font-medium">
-                            <span>Subtotal:</span>
+                            <span className="text-gray-700">Subtotal:</span>
                             <span>{formatarMoeda(resultado.subtotal)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Impostos (7%):</span>
-                            <span>{formatarMoeda(resultado.impostos)}</span>
+                            <span className="text-gray-700">Impostos (7%):</span>
+                            <span className="font-medium">{formatarMoeda(resultado.impostos)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Base:</span>
-                            <span>{formatarMoeda(resultado.base)}</span>
+                            <span className="text-gray-700">Base:</span>
+                            <span className="font-medium">{formatarMoeda(resultado.base)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Margem de Lucro ({margemLucro}%):</span>
-                            <span>{formatarMoeda(resultado.margemLucro)}</span>
+                            <span className="text-gray-700">Margem de Lucro ({margemLucro}%):</span>
+                            <span className="font-medium">{formatarMoeda(resultado.margemLucro)}</span>
                           </div>
                           <Separator />
-                          <div className="flex justify-between text-xl font-bold text-green-600">
+                          <div className="flex justify-between text-xl font-bold text-green-600 bg-green-50 p-3 rounded-lg">
                             <span>PREÇO FINAL:</span>
                             <span>{formatarMoeda(resultado.valorFinal)}</span>
-                          </div>
-                          <div className="flex justify-between text-xs text-purple-600 bg-purple-50 p-2 rounded">
-                            <span>✨ Soma dos dígitos:</span>
-                            <span>{resultado.somaDigitos} (Regra numerológica aplicada)</span>
                           </div>
                         </div>
                       </div>
                       
-                      <Button onClick={adicionarItemProjeto} className="w-full" size="lg">
+                      <Button 
+                        onClick={adicionarItemProjeto} 
+                        className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg" 
+                        size="lg"
+                      >
                         Adicionar Item ao Projeto
                       </Button>
                     </div>
@@ -1294,60 +1523,64 @@ export default function SistemaPrecificacao() {
           {/* Gestão de Clientes */}
           <TabsContent value="clientes">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Formulário de Novo Cliente */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+              {/* Formulário de Novo Cliente - UI Moderna */}
+              <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
+                  <CardTitle className="flex items-center gap-2 text-blue-700">
                     <Plus className="w-5 h-5" />
                     Novo Cliente
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 p-6">
                   <div className="space-y-2">
-                    <Label htmlFor="nome">Nome *</Label>
+                    <Label htmlFor="nome" className="text-gray-700 font-medium">Nome *</Label>
                     <Input
                       id="nome"
                       value={novoCliente.nome}
                       onChange={(e) => setNovoCliente({...novoCliente, nome: e.target.value})}
                       placeholder="Nome completo"
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="telefone">Telefone *</Label>
+                    <Label htmlFor="telefone" className="text-gray-700 font-medium">Telefone *</Label>
                     <Input
                       id="telefone"
                       value={novoCliente.telefone}
                       onChange={(e) => setNovoCliente({...novoCliente, telefone: e.target.value})}
                       placeholder="(11) 99999-9999"
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email" className="text-gray-700 font-medium">Email</Label>
                     <Input
                       id="email"
                       type="email"
                       value={novoCliente.email}
                       onChange={(e) => setNovoCliente({...novoCliente, email: e.target.value})}
                       placeholder="email@exemplo.com"
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="endereco">Endereço</Label>
+                    <Label htmlFor="endereco" className="text-gray-700 font-medium">Endereço</Label>
                     <Input
                       id="endereco"
                       value={novoCliente.endereco}
                       onChange={(e) => setNovoCliente({...novoCliente, endereco: e.target.value})}
                       placeholder="Endereço completo"
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
+                    <Label htmlFor="status" className="text-gray-700 font-medium">Status</Label>
                     <Select value={novoCliente.status} onValueChange={(value: 'lead' | 'ativo' | 'inativo') => setNovoCliente({...novoCliente, status: value})}>
-                      <SelectTrigger>
+                      <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1359,45 +1592,52 @@ export default function SistemaPrecificacao() {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="observacoes">Observações</Label>
+                    <Label htmlFor="observacoes" className="text-gray-700 font-medium">Observações</Label>
                     <Textarea
                       id="observacoes"
                       value={novoCliente.observacoes}
                       onChange={(e) => setNovoCliente({...novoCliente, observacoes: e.target.value})}
                       placeholder="Observações sobre o cliente"
+                      className="border-blue-200 focus:border-blue-500 rounded-lg"
                     />
                   </div>
                   
-                  <Button onClick={adicionarCliente} className="w-full">
+                  <Button 
+                    onClick={adicionarCliente} 
+                    className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
+                  >
                     Adicionar Cliente
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* Lista de Clientes */}
+              {/* Lista de Clientes - UI Moderna */}
               <div className="lg:col-span-2">
-                <Card>
-                  <CardHeader>
+                <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                  <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                     <CardTitle className="flex items-center justify-between">
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-2 text-blue-700">
                         <Users className="w-5 h-5" />
                         Clientes ({clientes.length})
                       </span>
                       <div className="flex items-center gap-2">
-                        <Search className="w-4 h-4" />
-                        <Input placeholder="Buscar cliente..." className="w-64" />
+                        <Search className="w-4 h-4 text-blue-500" />
+                        <Input placeholder="Buscar cliente..." className="w-64 border-blue-200 focus:border-blue-500 rounded-lg" />
                       </div>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-6">
                     <div className="space-y-4">
                       {clientes.map(cliente => (
-                        <div key={cliente.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div key={cliente.id} className="border border-blue-100 rounded-xl p-4 hover:bg-blue-50 transition-all duration-200 hover:shadow-md">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold">{cliente.nome}</h3>
-                                <Badge variant={cliente.status === 'ativo' ? 'default' : cliente.status === 'lead' ? 'secondary' : 'outline'}>
+                                <h3 className="font-semibold text-gray-800">{cliente.nome}</h3>
+                                <Badge 
+                                  variant={cliente.status === 'ativo' ? 'default' : cliente.status === 'lead' ? 'secondary' : 'outline'}
+                                  className={cliente.status === 'ativo' ? 'bg-green-100 text-green-800' : cliente.status === 'lead' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}
+                                >
                                   {cliente.status}
                                 </Badge>
                               </div>
@@ -1409,10 +1649,20 @@ export default function SistemaPrecificacao() {
                               </div>
                             </div>
                             <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => editarCliente(cliente)}>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => editarCliente(cliente)}
+                                className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                              >
                                 <Edit className="w-4 h-4" />
                               </Button>
-                              <Button variant="outline" size="sm" onClick={() => deletarCliente(cliente.id)}>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => deletarCliente(cliente.id)}
+                                className="border-red-200 text-red-600 hover:bg-red-50"
+                              >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
@@ -1427,53 +1677,57 @@ export default function SistemaPrecificacao() {
 
             {/* Modal de Edição de Cliente */}
             <Dialog open={showClienteModal} onOpenChange={setShowClienteModal}>
-              <DialogContent>
+              <DialogContent className="bg-white rounded-2xl">
                 <DialogHeader>
-                  <DialogTitle>Editar Cliente</DialogTitle>
+                  <DialogTitle className="text-blue-700">Editar Cliente</DialogTitle>
                 </DialogHeader>
                 {clienteEditando && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Nome *</Label>
+                      <Label className="text-gray-700 font-medium">Nome *</Label>
                       <Input
                         value={clienteEditando.nome}
                         onChange={(e) => setClienteEditando({...clienteEditando, nome: e.target.value})}
                         placeholder="Nome completo"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Telefone *</Label>
+                      <Label className="text-gray-700 font-medium">Telefone *</Label>
                       <Input
                         value={clienteEditando.telefone}
                         onChange={(e) => setClienteEditando({...clienteEditando, telefone: e.target.value})}
                         placeholder="(11) 99999-9999"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Email</Label>
+                      <Label className="text-gray-700 font-medium">Email</Label>
                       <Input
                         type="email"
                         value={clienteEditando.email}
                         onChange={(e) => setClienteEditando({...clienteEditando, email: e.target.value})}
                         placeholder="email@exemplo.com"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Endereço</Label>
+                      <Label className="text-gray-700 font-medium">Endereço</Label>
                       <Input
                         value={clienteEditando.endereco}
                         onChange={(e) => setClienteEditando({...clienteEditando, endereco: e.target.value})}
                         placeholder="Endereço completo"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Status</Label>
+                      <Label className="text-gray-700 font-medium">Status</Label>
                       <Select value={clienteEditando.status} onValueChange={(value: 'lead' | 'ativo' | 'inativo') => setClienteEditando({...clienteEditando, status: value})}>
-                        <SelectTrigger>
+                        <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1485,19 +1739,27 @@ export default function SistemaPrecificacao() {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Observações</Label>
+                      <Label className="text-gray-700 font-medium">Observações</Label>
                       <Textarea
                         value={clienteEditando.observacoes}
                         onChange={(e) => setClienteEditando({...clienteEditando, observacoes: e.target.value})}
                         placeholder="Observações sobre o cliente"
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     
                     <div className="flex gap-2">
-                      <Button onClick={salvarEdicaoCliente} className="flex-1">
+                      <Button 
+                        onClick={salvarEdicaoCliente} 
+                        className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
+                      >
                         Salvar Alterações
                       </Button>
-                      <Button variant="outline" onClick={() => setShowClienteModal(false)}>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setShowClienteModal(false)}
+                        className="border-gray-300 rounded-lg"
+                      >
                         Cancelar
                       </Button>
                     </div>
@@ -1507,7 +1769,7 @@ export default function SistemaPrecificacao() {
             </Dialog>
           </TabsContent>
 
-          {/* Projetos */}
+          {/* Projetos - ATUALIZADO COM DADOS COMPLETOS */}
           <TabsContent value="projetos">
             <div className="space-y-6">
               {projetos.length > 0 ? (
@@ -1515,32 +1777,44 @@ export default function SistemaPrecificacao() {
                   const cliente = clientes.find(c => c.id === projeto.clienteId)
                   const valorItens = projeto.itens.reduce((acc, item) => acc + item.valorFinal, 0)
                   return (
-                    <Card key={projeto.id}>
-                      <CardHeader>
+                    <Card key={projeto.id} className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                      <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                         <div className="flex items-start justify-between">
                           <div>
-                            <CardTitle className="flex items-center gap-2">
+                            <CardTitle className="flex items-center gap-2 text-blue-700">
                               <Package className="w-5 h-5" />
                               {projeto.nome}
                             </CardTitle>
-                            <p className="text-sm text-gray-600 mt-1">
+                            <p className="text-sm text-blue-600 mt-1">
                               Cliente: {cliente?.nome} | Criado em: {projeto.dataCreacao}
+                              {projeto.dataSugerida && ` | Data Sugerida: ${projeto.dataSugerida}`}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge className={statusProjeto[projeto.status].cor}>
                               {statusProjeto[projeto.status].nome}
                             </Badge>
-                            <Button variant="outline" size="sm" onClick={() => editarProjeto(projeto)}>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => editarProjeto(projeto)}
+                              className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                            >
                               <Edit className="w-4 h-4" />
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => deletarProjeto(projeto.id)}>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => deletarProjeto(projeto.id)}
+                              className="border-red-200 text-red-600 hover:bg-red-50"
+                            >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => copiarProposta(projeto)}
+                              className="border-green-200 text-green-600 hover:bg-green-50"
                             >
                               <Copy className="w-4 h-4 mr-2" />
                               Copiar Proposta
@@ -1548,38 +1822,42 @@ export default function SistemaPrecificacao() {
                           </div>
                         </div>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="p-6">
                         <div className="space-y-4">
-                          {/* Itens do Projeto */}
+                          {/* Itens do Projeto - DADOS COMPLETOS */}
                           <div className="space-y-3">
-                            <h4 className="font-semibold">Itens do Projeto:</h4>
+                            <h4 className="font-semibold text-gray-700">Itens do Projeto:</h4>
                             {projeto.itens.map((item, index) => {
                               const material = materiais.find(m => m.id === item.materialId)
+                              const fator = fatoresDificuldade.find(f => f.id === item.fatorDificuldadeId)
                               return (
-                                <div key={item.id} className="bg-gray-50 p-3 rounded-lg">
-                                  <div className="flex justify-between items-start mb-2">
-                                    <h5 className="font-medium">{index + 1}. {item.descricao}</h5>
+                                <div key={item.id} className="bg-gradient-to-r from-gray-50 to-blue-50 p-4 rounded-xl border border-blue-100">
+                                  <div className="flex justify-between items-start mb-3">
+                                    <h5 className="font-medium text-gray-800">{index + 1}. {item.descricao}</h5>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-bold text-green-600">
+                                      <span className="font-bold text-green-600 text-lg">
                                         {formatarMoeda(item.valorFinal)}
-                                      </span>
-                                      <span className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded">
-                                        ✨{calcularSomaDigitos(item.valorFinal)}
                                       </span>
                                       <Button 
                                         variant="outline" 
                                         size="sm"
                                         onClick={() => deletarItemProjeto(projeto.id, item.id)}
+                                        className="border-red-200 text-red-600 hover:bg-red-50"
                                       >
                                         <Trash2 className="w-3 h-3" />
                                       </Button>
                                     </div>
                                   </div>
-                                  <div className="text-sm text-gray-600 grid grid-cols-2 md:grid-cols-4 gap-2">
-                                    <div>Material: {material?.nome}</div>
-                                    <div>Qtd: {item.quantidade} m²</div>
-                                    <div>Dias: {item.diasEstimados}</div>
-                                    <div>Margem: {item.margemLucro}%</div>
+                                  {/* DADOS COMPLETOS DO ITEM */}
+                                  <div className="text-sm text-gray-600 grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div><strong>Material:</strong> {material?.nome}</div>
+                                    <div><strong>Qtd Material:</strong> {item.quantidade} m²</div>
+                                    <div><strong>Duração:</strong> {item.diasEstimados} dias</div>
+                                    <div><strong>Envelopadores:</strong> {item.quantidadeProfissionais}</div>
+                                    <div><strong>Nível:</strong> {niveisProfissionais[item.nivelProfissional as keyof typeof niveisProfissionais]?.nome}</div>
+                                    <div><strong>Fator:</strong> {fator?.nome} ({fator?.multiplicador}x)</div>
+                                    <div><strong>Margem:</strong> {item.margemLucro}%</div>
+                                    <div><strong>Status:</strong> {statusProjeto[projeto.status].nome}</div>
                                   </div>
                                 </div>
                               )
@@ -1587,11 +1865,11 @@ export default function SistemaPrecificacao() {
                           </div>
                           
                           {/* Total do Projeto */}
-                          <div className="border-t pt-4">
+                          <div className="border-t border-blue-200 pt-4">
                             <div className="space-y-2">
                               <div className="flex justify-between items-center">
-                                <span className="font-medium">Subtotal dos Itens:</span>
-                                <span>{formatarMoeda(valorItens)}</span>
+                                <span className="font-medium text-gray-700">Subtotal dos Itens:</span>
+                                <span className="font-medium">{formatarMoeda(valorItens)}</span>
                               </div>
                               {projeto.desconto > 0 && (
                                 <div className="flex justify-between items-center text-red-600">
@@ -1599,8 +1877,8 @@ export default function SistemaPrecificacao() {
                                   <span>-{formatarMoeda(valorItens * projeto.desconto / 100)}</span>
                                 </div>
                               )}
-                              <div className="flex justify-between items-center text-xl font-bold">
-                                <span>VALOR TOTAL DO PROJETO:</span>
+                              <div className="flex justify-between items-center text-xl font-bold bg-green-50 p-3 rounded-lg">
+                                <span className="text-gray-800">VALOR TOTAL DO PROJETO:</span>
                                 <span className="text-green-600">{formatarMoeda(projeto.valorTotal)}</span>
                               </div>
                             </div>
@@ -1611,12 +1889,15 @@ export default function SistemaPrecificacao() {
                   )
                 })
               ) : (
-                <Card>
+                <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                   <CardContent className="text-center py-12">
-                    <Package className="w-16 h-16 mx-auto mb-4 opacity-50 text-gray-400" />
+                    <Package className="w-16 h-16 mx-auto mb-4 opacity-50 text-blue-400" />
                     <h3 className="text-lg font-semibold text-gray-600 mb-2">Nenhum projeto criado</h3>
                     <p className="text-gray-500 mb-4">Use a calculadora para criar seu primeiro projeto</p>
-                    <Button onClick={() => setActiveTab('calculadora')}>
+                    <Button 
+                      onClick={() => setActiveTab('calculadora')}
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
+                    >
                       Ir para Calculadora
                     </Button>
                   </CardContent>
@@ -1626,29 +1907,30 @@ export default function SistemaPrecificacao() {
 
             {/* Modal de Edição de Projeto */}
             <Dialog open={showProjetoModal} onOpenChange={setShowProjetoModal}>
-              <DialogContent className="max-w-2xl">
+              <DialogContent className="max-w-2xl bg-white rounded-2xl">
                 <DialogHeader>
-                  <DialogTitle>Editar Projeto</DialogTitle>
+                  <DialogTitle className="text-blue-700">Editar Projeto</DialogTitle>
                 </DialogHeader>
                 {projetoEditando && (
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Nome do Projeto</Label>
+                        <Label className="text-gray-700 font-medium">Nome do Projeto</Label>
                         <Input
                           value={projetoEditando.nome}
                           onChange={(e) => setProjetoEditando({...projetoEditando, nome: e.target.value})}
                           placeholder="Nome do projeto"
+                          className="border-blue-200 focus:border-blue-500 rounded-lg"
                         />
                       </div>
                       
                       <div className="space-y-2">
-                        <Label>Status</Label>
+                        <Label className="text-gray-700 font-medium">Status</Label>
                         <Select 
                           value={projetoEditando.status} 
                           onValueChange={(value: any) => setProjetoEditando({...projetoEditando, status: value})}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1664,18 +1946,19 @@ export default function SistemaPrecificacao() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Descrição</Label>
+                      <Label className="text-gray-700 font-medium">Descrição</Label>
                       <Textarea
                         value={projetoEditando.descricao}
                         onChange={(e) => setProjetoEditando({...projetoEditando, descricao: e.target.value})}
                         placeholder="Descrição do projeto"
                         rows={3}
+                        className="border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Desconto (%)</Label>
+                        <Label className="text-gray-700 font-medium">Desconto (%)</Label>
                         <Input
                           type="number"
                           min="0"
@@ -1684,24 +1967,33 @@ export default function SistemaPrecificacao() {
                           value={projetoEditando.desconto}
                           onChange={(e) => setProjetoEditando({...projetoEditando, desconto: parseFloat(e.target.value) || 0})}
                           placeholder="0"
+                          className="border-blue-200 focus:border-blue-500 rounded-lg"
                         />
                       </div>
                       
                       <div className="space-y-2">
-                        <Label>Data de Entrega</Label>
+                        <Label className="text-gray-700 font-medium">Data de Entrega</Label>
                         <Input
                           type="date"
                           value={projetoEditando.dataEntrega || ''}
                           onChange={(e) => setProjetoEditando({...projetoEditando, dataEntrega: e.target.value})}
+                          className="border-blue-200 focus:border-blue-500 rounded-lg"
                         />
                       </div>
                     </div>
                     
                     <div className="flex gap-2">
-                      <Button onClick={salvarEdicaoProjeto} className="flex-1">
+                      <Button 
+                        onClick={salvarEdicaoProjeto} 
+                        className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
+                      >
                         Salvar Alterações
                       </Button>
-                      <Button variant="outline" onClick={() => setShowProjetoModal(false)}>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setShowProjetoModal(false)}
+                        className="border-gray-300 rounded-lg"
+                      >
                         Cancelar
                       </Button>
                     </div>
@@ -1711,26 +2003,30 @@ export default function SistemaPrecificacao() {
             </Dialog>
           </TabsContent>
 
-          {/* Configurações */}
+          {/* Configurações - SIMPLIFICADO */}
           <TabsContent value="configuracoes">
             <div className="space-y-8">
-              {/* Template de Proposta Editável */}
-              <Card>
-                <CardHeader>
+              {/* Template de Proposta Editável - MANTIDO */}
+              <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                   <CardTitle className="flex items-center justify-between">
-                    <span className="flex items-center gap-2">
+                    <span className="flex items-center gap-2 text-blue-700">
                       <FileText className="w-5 h-5" />
                       Template de Proposta para WhatsApp
                     </span>
-                    <Button onClick={salvarTemplate} variant="outline">
+                    <Button 
+                      onClick={salvarTemplate} 
+                      variant="outline"
+                      className="border-blue-200 text-blue-600 hover:bg-blue-50 rounded-lg"
+                    >
                       <Copy className="w-4 h-4 mr-2" />
                       Salvar Template
                     </Button>
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-6">
                   <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-lg">
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                       <h4 className="font-semibold text-blue-800 mb-2">📝 Variáveis Disponíveis:</h4>
                       <div className="grid grid-cols-2 gap-2 text-sm text-blue-700">
                         <div><code>{'{{CLIENTE_NOME}}'}</code> - Nome do cliente</div>
@@ -1745,17 +2041,17 @@ export default function SistemaPrecificacao() {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Template da Proposta</Label>
+                      <Label className="text-gray-700 font-medium">Template da Proposta</Label>
                       <Textarea
                         value={templateProposta}
                         onChange={(e) => setTemplateProposta(e.target.value)}
                         placeholder="Digite seu template personalizado..."
                         rows={15}
-                        className="font-mono text-sm"
+                        className="font-mono text-sm border-blue-200 focus:border-blue-500 rounded-lg"
                       />
                     </div>
                     
-                    <div className="bg-amber-50 p-4 rounded-lg">
+                    <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
                       <p className="text-sm text-amber-800">
                         <strong>💡 Dica:</strong> Use as variáveis entre chaves duplas para inserir dados dinâmicos. 
                         O template será aplicado automaticamente quando você copiar uma proposta.
@@ -1765,207 +2061,85 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
 
-              {/* Template do Sistema */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Code className="w-5 h-5" />
-                      Template do Sistema
-                    </span>
-                    <Button onClick={copiarTemplate} variant="outline">
-                      <Copy className="w-4 h-4 mr-2" />
-                      Copiar Template
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-700 mb-4">
-                      <strong>Template completo do sistema</strong> - Inclui estrutura de dados, regras de negócio, 
-                      funcionalidades e tecnologias utilizadas. Use este template para documentação, 
-                      atualizações ou migração do sistema.
-                    </p>
-                    <div className="bg-white p-3 rounded border text-xs font-mono max-h-32 overflow-y-auto">
-                      <pre className="whitespace-pre-wrap text-gray-600">
-{templateSistema.substring(0, 500)}...
-                      </pre>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">
-                      Clique em "Copiar Template" para obter o template completo
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Migração para Banco de Dados */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Database className="w-5 h-5" />
-                    Migração para Banco de Dados na Nuvem
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h4 className="font-semibold text-blue-800 mb-2">📋 Opções Recomendadas:</h4>
-                      <div className="space-y-3 text-sm text-blue-700">
-                        <div>
-                          <strong>1. Supabase (Recomendado)</strong>
-                          <ul className="list-disc list-inside ml-4 mt-1">
-                            <li>PostgreSQL gerenciado na nuvem</li>
-                            <li>API REST automática</li>
-                            <li>Autenticação integrada</li>
-                            <li>Plano gratuito generoso</li>
-                            <li>Interface web para gerenciar dados</li>
-                          </ul>
-                        </div>
-                        
-                        <div>
-                          <strong>2. PlanetScale</strong>
-                          <ul className="list-disc list-inside ml-4 mt-1">
-                            <li>MySQL serverless</li>
-                            <li>Branching de banco de dados</li>
-                            <li>Escala automática</li>
-                          </ul>
-                        </div>
-                        
-                        <div>
-                          <strong>3. Vercel Postgres</strong>
-                          <ul className="list-disc list-inside ml-4 mt-1">
-                            <li>Integração perfeita com Vercel</li>
-                            <li>PostgreSQL serverless</li>
-                            <li>Deploy automático</li>
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-green-50 p-4 rounded-lg">
-                      <h4 className="font-semibold text-green-800 mb-2">🚀 Passos para Migração (Supabase):</h4>
-                      <ol className="list-decimal list-inside space-y-2 text-sm text-green-700">
-                        <li>Criar conta no <strong>supabase.com</strong></li>
-                        <li>Criar novo projeto</li>
-                        <li>Executar SQL para criar tabelas:
-                          <ul className="list-disc list-inside ml-4 mt-1">
-                            <li>materiais (id, codigo, nome, descricao, preco_unitario, categoria)</li>
-                            <li>fatores_dificuldade (id, nome, descricao, multiplicador)</li>
-                            <li>clientes (id, nome, telefone, email, endereco, status, observacoes)</li>
-                            <li>projetos (id, cliente_id, nome, descricao, valor_total, desconto, status, data_criacao, data_entrega)</li>
-                            <li>itens_projeto (id, projeto_id, material_id, descricao, quantidade, fator_dificuldade_id, dias_estimados, quantidade_profissionais, nivel_profissional, margem_lucro, custo_material, custo_mao_obra, subtotal, impostos, valor_final)</li>
-                          </ul>
-                        </li>
-                        <li>Instalar cliente Supabase: <code>npm install @supabase/supabase-js</code></li>
-                        <li>Configurar variáveis de ambiente (.env.local)</li>
-                        <li>Substituir localStorage por chamadas da API Supabase</li>
-                        <li>Migrar dados existentes (export/import)</li>
-                      </ol>
-                    </div>
-
-                    <div className="bg-amber-50 p-4 rounded-lg">
-                      <h4 className="font-semibold text-amber-800 mb-2">⚠️ Considerações Importantes:</h4>
-                      <ul className="list-disc list-inside space-y-1 text-sm text-amber-700">
-                        <li><strong>Backup:</strong> Exporte dados atuais antes da migração</li>
-                        <li><strong>Testes:</strong> Teste em ambiente de desenvolvimento primeiro</li>
-                        <li><strong>Performance:</strong> Configure índices adequados nas tabelas</li>
-                        <li><strong>Segurança:</strong> Configure Row Level Security (RLS) no Supabase</li>
-                        <li><strong>Custos:</strong> Monitore uso para evitar surpresas na fatura</li>
-                      </ul>
-                    </div>
-
-                    <div className="bg-purple-50 p-4 rounded-lg">
-                      <h4 className="font-semibold text-purple-800 mb-2">🔧 Código de Exemplo (Supabase):</h4>
-                      <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
-{`// lib/supabase.js
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-export const supabase = createClient(supabaseUrl, supabaseKey)
-
-// Exemplo de uso
-const { data: clientes, error } = await supabase
-  .from('clientes')
-  .select('*')
-  .order('nome')`}
-                      </pre>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Gestão de Materiais e Fatores */}
+              {/* Gestão de Materiais e Fatores - UI Moderna */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Gestão de Materiais */}
-                <Card>
-                  <CardHeader>
+                <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                  <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                     <CardTitle className="flex items-center justify-between">
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-2 text-blue-700">
                         <Package className="w-5 h-5" />
                         Materiais ({materiais.length})
                       </span>
                       <Dialog open={showMaterialModal} onOpenChange={setShowMaterialModal}>
                         <DialogTrigger asChild>
-                          <Button size="sm" onClick={() => {
-                            setMaterialEditando(null)
-                            setNovoMaterial({ codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: '' })
-                          }}>
+                          <Button 
+                            size="sm" 
+                            onClick={() => {
+                              setMaterialEditando(null)
+                              setNovoMaterial({ codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: '' })
+                            }}
+                            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
+                          >
                             <Plus className="w-4 h-4 mr-2" />
                             Novo Material
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="bg-white rounded-2xl">
                           <DialogHeader>
-                            <DialogTitle>{materialEditando ? 'Editar Material' : 'Novo Material'}</DialogTitle>
+                            <DialogTitle className="text-blue-700">{materialEditando ? 'Editar Material' : 'Novo Material'}</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <Label>Código *</Label>
+                              <Label className="text-gray-700 font-medium">Código *</Label>
                               <Input
                                 value={novoMaterial.codigo}
                                 onChange={(e) => setNovoMaterial({...novoMaterial, codigo: e.target.value})}
                                 placeholder="ENV001"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Nome *</Label>
+                              <Label className="text-gray-700 font-medium">Nome *</Label>
                               <Input
                                 value={novoMaterial.nome}
                                 onChange={(e) => setNovoMaterial({...novoMaterial, nome: e.target.value})}
                                 placeholder="Nome do material"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Descrição</Label>
+                              <Label className="text-gray-700 font-medium">Descrição</Label>
                               <Textarea
                                 value={novoMaterial.descricao}
                                 onChange={(e) => setNovoMaterial({...novoMaterial, descricao: e.target.value})}
                                 placeholder="Descrição detalhada"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Preço Unitário (R$) *</Label>
+                              <Label className="text-gray-700 font-medium">Preço Unitário (R$) *</Label>
                               <Input
                                 type="number"
                                 step="0.01"
                                 value={novoMaterial.precoUnitario}
                                 onChange={(e) => setNovoMaterial({...novoMaterial, precoUnitario: e.target.value})}
                                 placeholder="45.00"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Categoria</Label>
+                              <Label className="text-gray-700 font-medium">Categoria</Label>
                               <Input
                                 value={novoMaterial.categoria}
                                 onChange={(e) => setNovoMaterial({...novoMaterial, categoria: e.target.value})}
                                 placeholder="Automotivo"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <Button 
                               onClick={materialEditando ? salvarEdicaoMaterial : adicionarMaterial} 
-                              className="w-full"
+                              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
                             >
                               {materialEditando ? 'Salvar Alterações' : 'Adicionar Material'}
                             </Button>
@@ -1974,28 +2148,38 @@ const { data: clientes, error } = await supabase
                       </Dialog>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-6">
                     <div className="space-y-3 max-h-96 overflow-y-auto">
                       {materiais.map(material => (
-                        <div key={material.id} className="border rounded-lg p-3">
+                        <div key={material.id} className="border border-blue-100 rounded-lg p-3 hover:bg-blue-50 transition-colors">
                           <div className="flex justify-between items-start">
                             <div className="flex-1">
-                              <h4 className="font-medium">{material.codigo} - {material.nome}</h4>
+                              <h4 className="font-medium text-gray-800">{material.codigo} - {material.nome}</h4>
                               <p className="text-sm text-gray-600">{material.descricao}</p>
                               <div className="flex items-center gap-4 mt-1">
                                 <span className="text-sm font-medium text-green-600">
                                   {formatarMoeda(material.precoUnitario)}/m²
                                 </span>
-                                <Badge variant="outline" className="text-xs">
+                                <Badge variant="outline" className="text-xs border-blue-200 text-blue-600">
                                   {material.categoria}
                                 </Badge>
                               </div>
                             </div>
                             <div className="flex gap-1">
-                              <Button variant="outline" size="sm" onClick={() => editarMaterial(material)}>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => editarMaterial(material)}
+                                className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                              >
                                 <Edit className="w-3 h-3" />
                               </Button>
-                              <Button variant="outline" size="sm" onClick={() => deletarMaterial(material.id)}>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => deletarMaterial(material.id)}
+                                className="border-red-200 text-red-600 hover:bg-red-50"
+                              >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             </div>
@@ -2007,57 +2191,64 @@ const { data: clientes, error } = await supabase
                 </Card>
 
                 {/* Gestão de Fatores de Dificuldade */}
-                <Card>
-                  <CardHeader>
+                <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
+                  <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                     <CardTitle className="flex items-center justify-between">
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-2 text-blue-700">
                         <Settings className="w-5 h-5" />
                         Fatores de Dificuldade ({fatoresDificuldade.length})
                       </span>
                       <Dialog open={showFatorModal} onOpenChange={setShowFatorModal}>
                         <DialogTrigger asChild>
-                          <Button size="sm" onClick={() => {
-                            setFatorEditando(null)
-                            setNovoFator({ nome: '', descricao: '', multiplicador: '' })
-                          }}>
+                          <Button 
+                            size="sm" 
+                            onClick={() => {
+                              setFatorEditando(null)
+                              setNovoFator({ nome: '', descricao: '', multiplicador: '' })
+                            }}
+                            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
+                          >
                             <Plus className="w-4 h-4 mr-2" />
                             Novo Fator
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="bg-white rounded-2xl">
                           <DialogHeader>
-                            <DialogTitle>{fatorEditando ? 'Editar Fator de Dificuldade' : 'Novo Fator de Dificuldade'}</DialogTitle>
+                            <DialogTitle className="text-blue-700">{fatorEditando ? 'Editar Fator de Dificuldade' : 'Novo Fator de Dificuldade'}</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <Label>Nome *</Label>
+                              <Label className="text-gray-700 font-medium">Nome *</Label>
                               <Input
                                 value={novoFator.nome}
                                 onChange={(e) => setNovoFator({...novoFator, nome: e.target.value})}
                                 placeholder="Extremo"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Descrição</Label>
+                              <Label className="text-gray-700 font-medium">Descrição</Label>
                               <Textarea
                                 value={novoFator.descricao}
                                 onChange={(e) => setNovoFator({...novoFator, descricao: e.target.value})}
                                 placeholder="Descrição da dificuldade"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Multiplicador *</Label>
+                              <Label className="text-gray-700 font-medium">Multiplicador *</Label>
                               <Input
                                 type="number"
                                 step="0.1"
                                 value={novoFator.multiplicador}
                                 onChange={(e) => setNovoFator({...novoFator, multiplicador: e.target.value})}
                                 placeholder="3.5"
+                                className="border-blue-200 focus:border-blue-500 rounded-lg"
                               />
                             </div>
                             <Button 
                               onClick={fatorEditando ? salvarEdicaoFator : adicionarFator} 
-                              className="w-full"
+                              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg"
                             >
                               {fatorEditando ? 'Salvar Alterações' : 'Adicionar Fator'}
                             </Button>
@@ -2066,23 +2257,33 @@ const { data: clientes, error } = await supabase
                       </Dialog>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-6">
                     <div className="space-y-3">
                       {fatoresDificuldade.map(fator => (
-                        <div key={fator.id} className="border rounded-lg p-3">
+                        <div key={fator.id} className="border border-blue-100 rounded-lg p-3 hover:bg-blue-50 transition-colors">
                           <div className="flex justify-between items-start">
                             <div className="flex-1">
-                              <h4 className="font-medium">{fator.nome}</h4>
+                              <h4 className="font-medium text-gray-800">{fator.nome}</h4>
                               <p className="text-sm text-gray-600">{fator.descricao}</p>
                               <span className="text-sm font-medium text-blue-600">
                                 Multiplicador: {fator.multiplicador}x
                               </span>
                             </div>
                             <div className="flex gap-1">
-                              <Button variant="outline" size="sm" onClick={() => editarFator(fator)}>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => editarFator(fator)}
+                                className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                              >
                                 <Edit className="w-3 h-3" />
                               </Button>
-                              <Button variant="outline" size="sm" onClick={() => deletarFator(fator.id)}>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => deletarFator(fator.id)}
+                                className="border-red-200 text-red-600 hover:bg-red-50"
+                              >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             </div>
