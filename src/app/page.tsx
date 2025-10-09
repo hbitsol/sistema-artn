@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Calculator, Users, BarChart3, Package, Plus, Search, Edit, Trash2, Copy, Settings, FileText } from 'lucide-react'
 import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
 
 // Tipos de dados
 interface Material {
@@ -69,6 +70,7 @@ interface Projeto {
   status: 'orcamento' | 'negociacao' | 'aprovado' | 'rejeitado' | 'andamento' | 'finalizado'
   dataCreacao: string
   dataEntrega?: string
+  dataSugerida?: string
 }
 
 // Dados mock
@@ -93,7 +95,7 @@ const clientesIniciais: Cliente[] = [
   { id: '3', nome: 'Pedro Costa', telefone: '(11) 77777-7777', email: 'pedro@email.com', endereco: 'Rua C, 789', status: 'ativo', observacoes: 'Projetos recorrentes' }
 ]
 
-// Template padrão para proposta
+// Template padrão para proposta - ATUALIZADO
 const templatePropostaPadrao = `🎯 *PROPOSTA COMERCIAL - ARTN ENVELOPAMENTO*
 
 👤 *Cliente:* {{CLIENTE_NOME}}
@@ -159,19 +161,13 @@ export default function SistemaPrecificacao() {
   const [clienteNovoProjeto, setClienteNovoProjeto] = useState('')
   
   // Estados dos formulários
-  const [novoCliente, setNovoCliente] = useState<{
-    nome: string
-    telefone: string
-    email: string
-    endereco: string
-    status: 'lead' | 'ativo' | 'inativo'
-    observacoes: string
-  }>({
-    nome: '', telefone: '', email: '', endereco: '', status: 'lead', observacoes: ''
+  const [novoCliente, setNovoCliente] = useState({
+    nome: '', telefone: '', email: '', endereco: '', status: 'lead' as const, observacoes: ''
   })
   
   const [clienteEditando, setClienteEditando] = useState<Cliente | null>(null)
   const [projetoEditando, setProjetoEditando] = useState<Projeto | null>(null)
+  const [itemEditando, setItemEditando] = useState<ItemProjeto | null>(null)
   
   const [novoMaterial, setNovoMaterial] = useState({
     codigo: '', nome: '', descricao: '', precoUnitario: '', categoria: ''
@@ -190,6 +186,10 @@ export default function SistemaPrecificacao() {
   const [showFatorModal, setShowFatorModal] = useState(false)
   const [showClienteModal, setShowClienteModal] = useState(false)
   const [showProjetoModal, setShowProjetoModal] = useState(false)
+  const [showItemModal, setShowItemModal] = useState(false)
+  const [showPropostaModal, setShowPropostaModal] = useState(false)
+  const [showTemplateModal, setShowTemplateModal] = useState(false)
+  const [projetoProposta, setProjetoProposta] = useState<Projeto | null>(null)
 
   // Carregar dados do Supabase na inicialização
   useEffect(() => {
@@ -202,30 +202,20 @@ export default function SistemaPrecificacao() {
   // Função para carregar dados do Supabase
   const carregarDados = async () => {
     try {
-      // Verificar se estamos no lado do cliente
-      if (typeof window === 'undefined') {
-        console.warn('Tentativa de carregar dados do Supabase no servidor. Ignorando.')
-        return
-      }
-
-      // Import dinâmico do supabase
-      const { getSupabaseClient } = await import('@/lib/supabase')
-      const supabaseClient = getSupabaseClient()
-
       // Verificar se o cliente Supabase está disponível
-      if (!supabaseClient) {
+      if (!supabase) {
         console.warn('Cliente Supabase não está configurado. Usando dados locais.')
         return
       }
 
       // Carregar materiais
-      const { data: materiaisData } = await supabaseClient
+      const { data: materiaisData } = await supabase
         .from('materiais')
         .select('*')
         .order('codigo')
       
       if (materiaisData && materiaisData.length > 0) {
-        setMateriais(materiaisData.map((m: any) => ({
+        setMateriais(materiaisData.map(m => ({
           id: m.id,
           codigo: m.codigo,
           nome: m.nome,
@@ -236,13 +226,13 @@ export default function SistemaPrecificacao() {
       }
 
       // Carregar fatores de dificuldade
-      const { data: fatoresData } = await supabaseClient
+      const { data: fatoresData } = await supabase
         .from('fatores_dificuldade')
         .select('*')
         .order('multiplicador')
       
       if (fatoresData && fatoresData.length > 0) {
-        setFatoresDificuldade(fatoresData.map((f: any) => ({
+        setFatoresDificuldade(fatoresData.map(f => ({
           id: f.id,
           nome: f.nome,
           descricao: f.descricao || '',
@@ -251,13 +241,13 @@ export default function SistemaPrecificacao() {
       }
 
       // Carregar clientes
-      const { data: clientesData } = await supabaseClient
+      const { data: clientesData } = await supabase
         .from('clientes')
         .select('*')
         .order('nome')
       
       if (clientesData && clientesData.length > 0) {
-        setClientes(clientesData.map((c: any) => ({
+        setClientes(clientesData.map(c => ({
           id: c.id,
           nome: c.nome,
           telefone: c.telefone,
@@ -269,7 +259,7 @@ export default function SistemaPrecificacao() {
       }
 
       // Carregar projetos com itens
-      const { data: projetosData } = await supabaseClient
+      const { data: projetosData } = await supabase
         .from('projetos')
         .select(`
           *,
@@ -278,7 +268,7 @@ export default function SistemaPrecificacao() {
         .order('data_criacao', { ascending: false })
       
       if (projetosData && projetosData.length > 0) {
-        setProjetos(projetosData.map((p: any) => ({
+        setProjetos(projetosData.map(p => ({
           id: p.id,
           clienteId: p.cliente_id,
           nome: p.nome,
@@ -303,7 +293,8 @@ export default function SistemaPrecificacao() {
           desconto: p.desconto || 0,
           status: p.status,
           dataCreacao: new Date(p.data_criacao).toLocaleDateString('pt-BR'),
-          dataEntrega: p.data_entrega ? new Date(p.data_entrega).toLocaleDateString('pt-BR') : undefined
+          dataEntrega: p.data_entrega ? new Date(p.data_entrega).toLocaleDateString('pt-BR') : undefined,
+          dataSugerida: p.data_sugerida ? new Date(p.data_sugerida).toLocaleDateString('pt-BR') : undefined
         })))
       }
     } catch (error) {
@@ -312,26 +303,22 @@ export default function SistemaPrecificacao() {
     }
   }
 
-  // Função para salvar dados no Supabase
+  // Função para salvar dados no Supabase - CORRIGIDA
   const salvarNoSupabase = async (tabela: string, dados: any, operacao: 'insert' | 'update' | 'delete' = 'insert') => {
     try {
-      // Import dinâmico do supabase
-      const { getSupabaseClient } = await import('@/lib/supabase')
-      const supabaseClient = getSupabaseClient()
-
       // Verificar se o cliente Supabase está disponível
-      if (!supabaseClient) {
+      if (!supabase) {
         throw new Error('Cliente Supabase não está configurado. Verifique as variáveis de ambiente.')
       }
 
       let result
       
       if (operacao === 'insert') {
-        result = await supabaseClient.from(tabela).insert(dados)
+        result = await supabase.from(tabela).insert(dados)
       } else if (operacao === 'update') {
-        result = await supabaseClient.from(tabela).update(dados).eq('id', dados.id)
+        result = await supabase.from(tabela).update(dados).eq('id', dados.id)
       } else if (operacao === 'delete') {
-        result = await supabaseClient.from(tabela).delete().eq('id', dados.id)
+        result = await supabase.from(tabela).delete().eq('id', dados.id)
       }
       
       if (result?.error) {
@@ -378,38 +365,45 @@ export default function SistemaPrecificacao() {
     return soma
   }
 
-  // Função para ajustar valor para que a soma dos dígitos seja 8
+  // Função CORRIGIDA para ajustar valor para que a soma dos dígitos seja 8
   const ajustarParaSoma8 = (valorBase: number): number => {
     let valorAjustado = valorBase
     let tentativas = 0
-    const maxTentativas = 10000
+    const maxTentativas = 10000 // Aumentar tentativas
     
     while (calcularSomaDigitos(valorAjustado) !== 8 && tentativas < maxTentativas) {
       const somaAtual = calcularSomaDigitos(valorAjustado)
       
       if (somaAtual < 8) {
+        // Se a soma é menor que 8, aumentar ligeiramente o valor
         valorAjustado += 0.01
       } else {
+        // Se a soma é maior que 8, diminuir ligeiramente o valor
         valorAjustado -= 0.01
       }
       
       tentativas++
     }
     
+    // Se não conseguiu ajustar, fazer um ajuste mais direto nos dígitos
     if (calcularSomaDigitos(valorAjustado) !== 8) {
       const valorString = Math.round(valorAjustado * 100).toString().padStart(4, '0')
       const digitos = valorString.split('').map(d => parseInt(d))
       
+      // Calcular diferença necessária para chegar a 8
       let somaAtual = digitos.reduce((acc, d) => acc + d, 0)
       while (somaAtual >= 10) {
         somaAtual = somaAtual.toString().split('').reduce((acc, digit) => acc + parseInt(digit), 0)
       }
       
       if (somaAtual !== 8) {
+        // Ajustar o último dígito para fazer a soma dar 8
         const diferenca = 8 - somaAtual
         let novoUltimoDigito = digitos[digitos.length - 1] + diferenca
         
+        // Se o novo dígito for negativo ou maior que 9, ajustar outros dígitos
         if (novoUltimoDigito < 0 || novoUltimoDigito > 9) {
+          // Tentar ajustar o penúltimo dígito
           if (digitos.length > 1) {
             const ajustePenultimo = Math.floor(diferenca / 2)
             const ajusteUltimo = diferenca - ajustePenultimo
@@ -426,7 +420,7 @@ export default function SistemaPrecificacao() {
       }
     }
     
-    return Math.max(valorAjustado, 0.01)
+    return Math.max(valorAjustado, 0.01) // Garantir que o valor seja positivo
   }
 
   // Função de cálculo de preço para um item
@@ -558,7 +552,7 @@ export default function SistemaPrecificacao() {
           desconto: 0,
           status: 'orcamento',
           dataCreacao: new Date().toLocaleDateString('pt-BR'),
-          dataEntrega: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toLocaleDateString('pt-BR')
+          dataSugerida: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toLocaleDateString('pt-BR')
         }
 
         // Salvar projeto no Supabase
@@ -571,7 +565,7 @@ export default function SistemaPrecificacao() {
           desconto: novoProjeto.desconto,
           status: novoProjeto.status,
           data_criacao: new Date().toISOString(),
-          data_entrega: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toISOString().split('T')[0]
+          data_sugerida: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toISOString()
         })
 
         // Salvar item no Supabase
@@ -723,7 +717,7 @@ export default function SistemaPrecificacao() {
         valor_total: valorComDesconto,
         desconto: projetoEditando.desconto,
         status: projetoEditando.status,
-        data_entrega: projetoEditando.dataEntrega ? new Date(projetoEditando.dataEntrega.split('/').reverse().join('-')).toISOString().split('T')[0] : null
+        data_entrega: projetoEditando.dataEntrega ? new Date(projetoEditando.dataEntrega.split('/').reverse().join('-')).toISOString() : null
       }, 'update')
 
       setProjetos(projetos.map(p => p.id === projetoEditando.id ? {
@@ -743,15 +737,8 @@ export default function SistemaPrecificacao() {
   const deletarProjeto = async (projetoId: string) => {
     if (confirm('Tem certeza que deseja deletar este projeto?')) {
       try {
-        // Import dinâmico do supabase
-        const { getSupabaseClient } = await import('@/lib/supabase')
-        const supabaseClient = getSupabaseClient()
-
-        if (supabaseClient) {
-          // Deletar itens do projeto primeiro
-          await supabaseClient.from('itens_projeto').delete().eq('projeto_id', projetoId)
-        }
-        
+        // Deletar itens do projeto primeiro
+        await supabase.from('itens_projeto').delete().eq('projeto_id', projetoId)
         // Deletar projeto
         await salvarNoSupabase('projetos', { id: projetoId }, 'delete')
         
@@ -994,21 +981,21 @@ export default function SistemaPrecificacao() {
     }
   }
 
-  // Função para gerar proposta para WhatsApp
+  // Função para gerar proposta para WhatsApp - ATUALIZADA
   const gerarPropostaWhatsApp = (projeto: Projeto) => {
     const cliente = clientes.find(c => c.id === projeto.clienteId)
     const valorItens = projeto.itens.reduce((acc, item) => acc + item.valorFinal, 0)
     
-    // Gerar lista de itens
+    // Gerar lista de itens - USANDO DESCRIÇÃO EM VEZ DO NOME DO MATERIAL
     let itensLista = ''
     projeto.itens.forEach((item, index) => {
-      itensLista += `*${index + 1}. ${item.descricao}*\\\\n   Valor: *${formatarMoeda(item.valorFinal)}*\\\\n\\\\n`
+      itensLista += `*${index + 1}. ${item.descricao}*\\n   Valor: *${formatarMoeda(item.valorFinal)}*\\n\\n`
     })
 
     // Linha de desconto (se houver)
     let descontoLinha = ''
     if (projeto.desconto > 0) {
-      descontoLinha = `🎯 *DESCONTO (${projeto.desconto}%): -${formatarMoeda(valorItens * projeto.desconto / 100)}*\\\\n`
+      descontoLinha = `🎯 *DESCONTO (${projeto.desconto}%): -${formatarMoeda(valorItens * projeto.desconto / 100)}*\\n`
     }
 
     // Substituir variáveis no template
@@ -1022,18 +1009,18 @@ export default function SistemaPrecificacao() {
       .replace('{{DESCONTO_LINHA}}', descontoLinha)
       .replace('{{VALOR_TOTAL}}', formatarMoeda(projeto.valorTotal))
 
-    // Substituir \\\\n por quebras de linha reais
-    proposta = proposta.replace(/\\\\\\\\n/g, '\\n')
+    // Substituir \\n por quebras de linha reais
+    proposta = proposta.replace(/\\\\n/g, '\n')
 
     return proposta
   }
 
-  // Função para copiar proposta
+  // Função para copiar proposta - CORRIGIDA
   const copiarProposta = async (projeto: Projeto) => {
     const proposta = gerarPropostaWhatsApp(projeto)
     
     try {
-      // Tentar usar a Clipboard API moderna primeiro
+      // Tentar usar a Clipboard API moderna primeiro (apenas em contexto seguro)
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(proposta)
         toast.success('Proposta copiada para a área de transferência!')
@@ -1068,6 +1055,35 @@ export default function SistemaPrecificacao() {
     
     // Se tudo falhar, mostrar modal com texto para cópia manual
     mostrarTextoParaCopia(proposta)
+  }
+
+  // Função alternativa para copiar texto
+  const copiarTextoFallback = (texto: string) => {
+    try {
+      // Criar elemento temporário
+      const textArea = document.createElement('textarea')
+      textArea.value = texto
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-999999px'
+      textArea.style.top = '-999999px'
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      
+      // Tentar copiar usando execCommand (método legado)
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textArea)
+      
+      if (successful) {
+        toast.success('Proposta copiada para a área de transferência!')
+      } else {
+        // Se tudo falhar, mostrar o texto para cópia manual
+        mostrarTextoParaCopia(texto)
+      }
+    } catch (err) {
+      // Se tudo falhar, mostrar o texto para cópia manual
+      mostrarTextoParaCopia(texto)
+    }
   }
 
   // Função para mostrar texto em modal para cópia manual
@@ -1147,7 +1163,7 @@ export default function SistemaPrecificacao() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-cyan-50 p-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header com Logo */}
+        {/* Header com Logo - UI Moderna Inspirada no Conta Azul */}
         <div className="mb-8 flex items-center gap-6 bg-white rounded-2xl shadow-lg p-6 border border-blue-100">
           <img 
             src="https://k6hrqrxuu8obbfwn.public.blob.vercel-storage.com/temp/1d2c3491-878e-47c4-8fa1-214a5282302a.png" 
@@ -1162,7 +1178,7 @@ export default function SistemaPrecificacao() {
           </div>
         </div>
 
-        {/* Navegação */}
+        {/* Navegação - UI Moderna */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-5 mb-8 bg-white rounded-xl shadow-md border border-blue-100 p-1">
             <TabsTrigger value="dashboard" className="flex items-center gap-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white rounded-lg transition-all">
@@ -1190,7 +1206,7 @@ export default function SistemaPrecificacao() {
           {/* Dashboard */}
           <TabsContent value="dashboard">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              {/* Cards de Métricas */}
+              {/* Cards de Métricas - UI Moderna */}
               <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
@@ -1242,7 +1258,7 @@ export default function SistemaPrecificacao() {
               </Card>
             </div>
 
-            {/* Gráficos e Relatórios */}
+            {/* Gráficos e Relatórios - UI Moderna */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
@@ -1305,7 +1321,7 @@ export default function SistemaPrecificacao() {
           {/* Calculadora de Preços */}
           <TabsContent value="calculadora">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Formulário de Cálculo */}
+              {/* Formulário de Cálculo - UI Moderna */}
               <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                   <CardTitle className="flex items-center gap-2 text-blue-700">
@@ -1495,7 +1511,7 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
 
-              {/* Resultado do Cálculo */}
+              {/* Resultado do Cálculo - UI Moderna */}
               <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                   <CardTitle className="text-blue-700">Resultado da Precificação</CardTitle>
@@ -1562,7 +1578,7 @@ export default function SistemaPrecificacao() {
           {/* Gestão de Clientes */}
           <TabsContent value="clientes">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Formulário de Novo Cliente */}
+              {/* Formulário de Novo Cliente - UI Moderna */}
               <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                   <CardTitle className="flex items-center gap-2 text-blue-700">
@@ -1618,7 +1634,7 @@ export default function SistemaPrecificacao() {
                   
                   <div className="space-y-2">
                     <Label htmlFor="status" className="text-gray-700 font-medium">Status</Label>
-                    <Select value={novoCliente.status} onValueChange={(value) => setNovoCliente({...novoCliente, status: value as 'lead' | 'ativo' | 'inativo'})}>
+                    <Select value={novoCliente.status} onValueChange={(value: 'lead' | 'ativo' | 'inativo') => setNovoCliente({...novoCliente, status: value})}>
                       <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                         <SelectValue />
                       </SelectTrigger>
@@ -1650,7 +1666,7 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
 
-              {/* Lista de Clientes */}
+              {/* Lista de Clientes - UI Moderna */}
               <div className="lg:col-span-2">
                 <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                   <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
@@ -1808,7 +1824,7 @@ export default function SistemaPrecificacao() {
             </Dialog>
           </TabsContent>
 
-          {/* Projetos */}
+          {/* Projetos - ATUALIZADO COM DADOS COMPLETOS */}
           <TabsContent value="projetos">
             <div className="space-y-6">
               {projetos.length > 0 ? (
@@ -1826,7 +1842,7 @@ export default function SistemaPrecificacao() {
                             </CardTitle>
                             <p className="text-sm text-blue-600 mt-1">
                               Cliente: {cliente?.nome} | Criado em: {projeto.dataCreacao}
-                              {projeto.dataEntrega && ` | Data de Entrega: ${projeto.dataEntrega}`}
+                              {projeto.dataSugerida && ` | Data Sugerida: ${projeto.dataSugerida}`}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -1863,7 +1879,7 @@ export default function SistemaPrecificacao() {
                       </CardHeader>
                       <CardContent className="p-6">
                         <div className="space-y-4">
-                          {/* Itens do Projeto */}
+                          {/* Itens do Projeto - DADOS COMPLETOS */}
                           <div className="space-y-3">
                             <h4 className="font-semibold text-gray-700">Itens do Projeto:</h4>
                             {projeto.itens.map((item, index) => {
@@ -1887,7 +1903,7 @@ export default function SistemaPrecificacao() {
                                       </Button>
                                     </div>
                                   </div>
-                                  {/* Dados completos do item */}
+                                  {/* DADOS COMPLETOS DO ITEM */}
                                   <div className="text-sm text-gray-600 grid grid-cols-2 md:grid-cols-4 gap-3">
                                     <div><strong>Material:</strong> {material?.nome}</div>
                                     <div><strong>Qtd Material:</strong> {item.quantidade} m²</div>
@@ -2014,8 +2030,8 @@ export default function SistemaPrecificacao() {
                         <Label className="text-gray-700 font-medium">Data de Entrega</Label>
                         <Input
                           type="date"
-                          value={projetoEditando.dataEntrega ? projetoEditando.dataEntrega.split('/').reverse().join('-') : ''}
-                          onChange={(e) => setProjetoEditando({...projetoEditando, dataEntrega: e.target.value ? new Date(e.target.value).toLocaleDateString('pt-BR') : ''})}
+                          value={projetoEditando.dataEntrega || ''}
+                          onChange={(e) => setProjetoEditando({...projetoEditando, dataEntrega: e.target.value})}
                           className="border-blue-200 focus:border-blue-500 rounded-lg"
                         />
                       </div>
@@ -2042,10 +2058,10 @@ export default function SistemaPrecificacao() {
             </Dialog>
           </TabsContent>
 
-          {/* Configurações */}
+          {/* Configurações - SIMPLIFICADO */}
           <TabsContent value="configuracoes">
             <div className="space-y-8">
-              {/* Template de Proposta Editável */}
+              {/* Template de Proposta Editável - MANTIDO */}
               <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
                 <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
                   <CardTitle className="flex items-center justify-between">
@@ -2100,7 +2116,7 @@ export default function SistemaPrecificacao() {
                 </CardContent>
               </Card>
 
-              {/* Gestão de Materiais e Fatores */}
+              {/* Gestão de Materiais e Fatores - UI Moderna */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Gestão de Materiais */}
                 <Card className="bg-white shadow-lg border border-blue-100 rounded-2xl">
