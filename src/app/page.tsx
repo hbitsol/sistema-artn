@@ -1613,7 +1613,7 @@ export default function SistemaPrecificacao() {
                   
                   <div className="space-y-2">
                     <Label htmlFor="status" className="text-gray-700 font-medium">Status</Label>
-                    <Select value={novoCliente.status} onValueChange={(value: 'lead' | 'ativo' | 'inativo') => setNovoCliente({...novoCliente, status: value})}>
+                    <Select value={novoCliente.status} onValueChange={(value) => setNovoCliente({...novoCliente, status: value as 'lead' | 'ativo' | 'inativo'})}>
                       <SelectTrigger className="border-blue-200 focus:border-blue-500 rounded-lg">
                         <SelectValue />
                       </SelectTrigger>
