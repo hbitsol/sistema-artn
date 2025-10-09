@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const createClient = (cookieStore: ReturnType<typeof cookies>) => {
+export const createClient = async () => {
   // Validação das variáveis de ambiente
   if (!supabaseUrl || !supabaseKey) {
     console.warn('❌ Variáveis do Supabase não configuradas no servidor. Verifique NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY');
@@ -18,6 +18,8 @@ export const createClient = (cookieStore: ReturnType<typeof cookies>) => {
       })
     } as any;
   }
+
+  const cookieStore = await cookies();
 
   return createServerClient(
     supabaseUrl,
