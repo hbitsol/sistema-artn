@@ -69,7 +69,6 @@ interface Projeto {
   status: 'orcamento' | 'negociacao' | 'aprovado' | 'rejeitado' | 'andamento' | 'finalizado'
   dataCreacao: string
   dataEntrega?: string
-  dataSugerida?: string
 }
 
 // Dados mock
@@ -304,8 +303,7 @@ export default function SistemaPrecificacao() {
           desconto: p.desconto || 0,
           status: p.status,
           dataCreacao: new Date(p.data_criacao).toLocaleDateString('pt-BR'),
-          dataEntrega: p.data_entrega ? new Date(p.data_entrega).toLocaleDateString('pt-BR') : undefined,
-          dataSugerida: p.data_sugerida ? new Date(p.data_sugerida).toLocaleDateString('pt-BR') : undefined
+          dataEntrega: p.data_entrega ? new Date(p.data_entrega).toLocaleDateString('pt-BR') : undefined
         })))
       }
     } catch (error) {
@@ -560,7 +558,7 @@ export default function SistemaPrecificacao() {
           desconto: 0,
           status: 'orcamento',
           dataCreacao: new Date().toLocaleDateString('pt-BR'),
-          dataSugerida: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toLocaleDateString('pt-BR')
+          dataEntrega: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toLocaleDateString('pt-BR')
         }
 
         // Salvar projeto no Supabase
@@ -573,7 +571,7 @@ export default function SistemaPrecificacao() {
           desconto: novoProjeto.desconto,
           status: novoProjeto.status,
           data_criacao: new Date().toISOString(),
-          data_sugerida: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toISOString()
+          data_entrega: new Date(Date.now() + (parseInt(diasEstimados) * 24 * 60 * 60 * 1000)).toISOString().split('T')[0]
         })
 
         // Salvar item no Supabase
@@ -725,7 +723,7 @@ export default function SistemaPrecificacao() {
         valor_total: valorComDesconto,
         desconto: projetoEditando.desconto,
         status: projetoEditando.status,
-        data_entrega: projetoEditando.dataEntrega ? new Date(projetoEditando.dataEntrega.split('/').reverse().join('-')).toISOString() : null
+        data_entrega: projetoEditando.dataEntrega ? new Date(projetoEditando.dataEntrega.split('/').reverse().join('-')).toISOString().split('T')[0] : null
       }, 'update')
 
       setProjetos(projetos.map(p => p.id === projetoEditando.id ? {
@@ -1828,7 +1826,7 @@ export default function SistemaPrecificacao() {
                             </CardTitle>
                             <p className="text-sm text-blue-600 mt-1">
                               Cliente: {cliente?.nome} | Criado em: {projeto.dataCreacao}
-                              {projeto.dataSugerida && ` | Data Sugerida: ${projeto.dataSugerida}`}
+                              {projeto.dataEntrega && ` | Data de Entrega: ${projeto.dataEntrega}`}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -2016,8 +2014,8 @@ export default function SistemaPrecificacao() {
                         <Label className="text-gray-700 font-medium">Data de Entrega</Label>
                         <Input
                           type="date"
-                          value={projetoEditando.dataEntrega || ''}
-                          onChange={(e) => setProjetoEditando({...projetoEditando, dataEntrega: e.target.value})}
+                          value={projetoEditando.dataEntrega ? projetoEditando.dataEntrega.split('/').reverse().join('-') : ''}
+                          onChange={(e) => setProjetoEditando({...projetoEditando, dataEntrega: e.target.value ? new Date(e.target.value).toLocaleDateString('pt-BR') : ''})}
                           className="border-blue-200 focus:border-blue-500 rounded-lg"
                         />
                       </div>
