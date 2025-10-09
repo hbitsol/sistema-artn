@@ -160,8 +160,15 @@ export default function SistemaPrecificacao() {
   const [clienteNovoProjeto, setClienteNovoProjeto] = useState('')
   
   // Estados dos formulários
-  const [novoCliente, setNovoCliente] = useState({
-    nome: '', telefone: '', email: '', endereco: '', status: 'lead' as const, observacoes: ''
+  const [novoCliente, setNovoCliente] = useState<{
+    nome: string
+    telefone: string
+    email: string
+    endereco: string
+    status: 'lead' | 'ativo' | 'inativo'
+    observacoes: string
+  }>({
+    nome: '', telefone: '', email: '', endereco: '', status: 'lead', observacoes: ''
   })
   
   const [clienteEditando, setClienteEditando] = useState<Cliente | null>(null)
