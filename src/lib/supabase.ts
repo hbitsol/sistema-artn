@@ -1,28 +1,47 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Função para criar cliente Supabase apenas no lado do cliente
+// Função para criar cliente Supabase com verificação de ambiente
 function createSupabaseClient() {
+  // Durante o build (server-side rendering), não inicializar o cliente
+  if (typeof window === 'undefined') {
+    console.log('🔧 Build mode: Supabase client não inicializado no servidor')
+    return null
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   // Validação apenas no lado do cliente (browser)
-  if (typeof window !== 'undefined') {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.warn('❌ Variáveis do Supabase não configuradas. Verifique NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY')
-      // Retorna um cliente mock para evitar erros
-      return null
-    }
-  }
-
-  // Durante o build (server-side), retorna null para evitar erros
-  if (typeof window === 'undefined' && (!supabaseUrl || !supabaseAnonKey)) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('❌ Variáveis do Supabase não configuradas. Verifique NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY')
     return null
   }
 
-  return createClient(supabaseUrl!, supabaseAnonKey!)
+  try {
+    return createClient(supabaseUrl, supabaseAnonKey)
+  } catch (error) {
+    console.error('❌ Erro ao criar cliente Supabase:', error)
+    return null
+  }
 }
 
-export const supabase = createSupabaseClient()
+// Exportar cliente que só é criado no browser - LAZY LOADING
+let supabaseClient: any = null
+
+export const getSupabaseClient = () => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  
+  if (!supabaseClient) {
+    supabaseClient = createSupabaseClient()
+  }
+  
+  return supabaseClient
+}
+
+// Para compatibilidade com código existente
+export const supabase = typeof window !== 'undefined' ? getSupabaseClient() : null
 
 // Tipos para o banco de dados
 export interface Database {
@@ -219,4 +238,4 @@ export interface Database {
   }
 }
 
-export type SupabaseClient = typeof supabase
+export type SupabaseClient = typeof supabaseClient
